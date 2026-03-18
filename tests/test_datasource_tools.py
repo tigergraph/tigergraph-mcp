@@ -22,7 +22,7 @@ class TestCreateDataSource(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_success(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "Successfully created data source"
+        self.mock_conn.createDataSource.return_value = {"error": False, "message": "Successfully created data source"}
 
         result = await create_data_source(
             data_source_name="my_s3",
@@ -35,7 +35,7 @@ class TestCreateDataSource(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_gsql_error(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "already exists"
+        self.mock_conn.createDataSource.side_effect = Exception("Data source already exists")
 
         result = await create_data_source(
             data_source_name="dup", data_source_type="s3", config={}
@@ -48,12 +48,22 @@ class TestUpdateDataSource(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_success(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "Data source updated"
+        self.mock_conn.updateDataSource.return_value = {"error": False, "message": "Data source updated"}
 
         result = await update_data_source(
             data_source_name="my_s3", config={"bucket": "new-bucket"}
         )
         self.assert_success(result)
+
+    @patch(PATCH_TARGET)
+    async def test_exception(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.updateDataSource.side_effect = Exception("Data source not found")
+
+        result = await update_data_source(
+            data_source_name="nope", config={}
+        )
+        self.assert_error(result)
 
 
 class TestGetDataSource(MCPToolTestBase):
@@ -61,7 +71,7 @@ class TestGetDataSource(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_success(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "Data source my_s3: type=S3"
+        self.mock_conn.getDataSource.return_value = {"name": "my_s3", "type": "S3"}
 
         result = await get_data_source(data_source_name="my_s3")
         resp = self.assert_success(result)
@@ -70,7 +80,7 @@ class TestGetDataSource(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_not_found(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "Data source 'nope' does not exist"
+        self.mock_conn.getDataSource.side_effect = Exception("Data source 'nope' does not exist")
 
         result = await get_data_source(data_source_name="nope")
         self.assert_error(result)
@@ -81,10 +91,18 @@ class TestDropDataSource(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_success(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "Successfully dropped data source"
+        self.mock_conn.dropDataSource.return_value = {"error": False, "message": "Successfully dropped data source"}
 
         result = await drop_data_source(data_source_name="old_ds")
         self.assert_success(result)
+
+    @patch(PATCH_TARGET)
+    async def test_exception(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.dropDataSource.side_effect = Exception("Data source does not exist")
+
+        result = await drop_data_source(data_source_name="nope")
+        self.assert_error(result)
 
 
 class TestGetAllDataSources(MCPToolTestBase):
@@ -92,10 +110,18 @@ class TestGetAllDataSources(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_success(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "Data sources:\n  - s3_1\n  - local_1"
+        self.mock_conn.getDataSources.return_value = [{"name": "s3_1"}, {"name": "local_1"}]
 
         result = await get_all_data_sources()
         self.assert_success(result)
+
+    @patch(PATCH_TARGET)
+    async def test_exception(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.getDataSources.side_effect = Exception("connection error")
+
+        result = await get_all_data_sources()
+        self.assert_error(result)
 
 
 class TestDropAllDataSources(MCPToolTestBase):
@@ -110,10 +136,18 @@ class TestDropAllDataSources(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_success(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "All data sources dropped"
+        self.mock_conn.dropAllDataSources.return_value = {"error": False, "message": "All data sources dropped"}
 
         result = await drop_all_data_sources(confirm=True)
         self.assert_success(result)
+
+    @patch(PATCH_TARGET)
+    async def test_exception(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.dropAllDataSources.side_effect = Exception("permission denied")
+
+        result = await drop_all_data_sources(confirm=True)
+        self.assert_error(result)
 
 
 class TestPreviewSampleData(MCPToolTestBase):
@@ -121,7 +155,7 @@ class TestPreviewSampleData(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_success(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "col1|col2\nval1|val2"
+        self.mock_conn.previewSampleData.return_value = "col1|col2\nval1|val2"
 
         result = await preview_sample_data(
             data_source_name="my_s3",
@@ -134,7 +168,7 @@ class TestPreviewSampleData(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_file_not_found(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "File does not exist"
+        self.mock_conn.previewSampleData.side_effect = Exception("File does not exist")
 
         result = await preview_sample_data(
             data_source_name="my_s3", file_path="/no/file.csv"
@@ -148,7 +182,7 @@ class TestProfilePropagation(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_create_data_source_with_profile(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "Successfully created data source"
+        self.mock_conn.createDataSource.return_value = {"error": False, "message": "Successfully created data source"}
 
         result = await create_data_source(
             data_source_name="my_s3",
@@ -162,7 +196,7 @@ class TestProfilePropagation(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_get_all_data_sources_with_profile(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "data sources: none"
+        self.mock_conn.getDataSources.return_value = []
 
         result = await get_all_data_sources(profile="analytics")
         mock_gc.assert_called_with(profile="analytics")

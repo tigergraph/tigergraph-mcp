@@ -550,18 +550,7 @@ async def create_graph(
     vertex_types: List[Dict[str, Any]] = None,
     edge_types: List[Dict[str, Any]] = None,
 ) -> List[TextContent]:
-    """Create a new graph with local vertex/edge types via a schema change job.
-
-    Workflow (follows TigerGraph best practice for local schema):
-        1. ``CREATE GRAPH <name>()``  — empty graph
-        2. ``CREATE SCHEMA_CHANGE JOB … FOR GRAPH <name> { ADD VERTEX …; ADD EDGE …; }``
-        3. ``RUN SCHEMA_CHANGE JOB …``
-        4. ``DROP JOB …``  — clean up the job definition
-
-    Using a local schema change job keeps vertex/edge types scoped to this
-    graph, avoiding global-scope privilege requirements and name collisions.
-    See: https://docs.tigergraph.com/gsql-ref/4.2/ddl-and-loading/modifying-a-graph-schema
-    """
+    """Create a new graph with local vertex/edge types."""
     try:
         conn = get_connection(profile=profile)
 
@@ -569,18 +558,15 @@ async def create_graph(
         edge_names: list[str] = []
 
         # ── Step 1: Create an empty graph ────────────────────────────
-        create_graph_gsql = f"CREATE GRAPH {graph_name}()"
-        create_result = await conn.gsql(create_graph_gsql)
-        create_result_str = str(create_result) if create_result else ""
-
-        if gsql_has_error(create_result_str):
+        try:
+            create_result = await conn.createGraph(graph_name)
+        except Exception as e:
             return format_error(
                 operation="create_graph",
-                error=TigerGraphException(create_result_str),
+                error=e,
                 context={
                     "graph_name": graph_name,
                     "step": "CREATE GRAPH",
-                    "gsql_command": create_graph_gsql,
                 },
                 suggestions=[
                     "Use list_graphs() to check if the graph already exists",
@@ -604,7 +590,6 @@ async def create_graph(
                     job_stmts.append(stmt + ";")
                     edge_names.append(ename)
 
-        # If no types to add, return the empty graph as-is
         if not job_stmts:
             return format_success(
                 operation="create_graph",
@@ -613,7 +598,6 @@ async def create_graph(
                     "graph_name": graph_name,
                     "vertex_type_count": 0,
                     "edge_type_count": 0,
-                    "gsql_command": create_graph_gsql,
                 },
                 suggestions=[
                     f"View graph: show_graph_details(graph_name='{graph_name}')",
@@ -622,31 +606,19 @@ async def create_graph(
                 metadata={"operation_type": "DDL"},
             )
 
-        # ── Step 3: Create, run, and drop the schema change job ──────
-        job_name = f"setup_{graph_name}"
-        job_body = "\n    ".join(job_stmts)
-        schema_gsql = (
-            f"USE GRAPH {graph_name}\n"
-            f"CREATE SCHEMA_CHANGE JOB {job_name} FOR GRAPH {graph_name} {{\n"
-            f"    {job_body}\n"
-            f"}}\n"
-            f"RUN SCHEMA_CHANGE JOB {job_name}\n"
-            f"DROP JOB {job_name}"
-        )
-
-        schema_result = await conn.gsql(schema_gsql)
-        schema_result_str = str(schema_result) if schema_result else ""
-
-        if gsql_has_error(schema_result_str):
+        # ── Step 3: Run schema change to add vertex/edge types ───────
+        schema_stmts = "\n".join(job_stmts)
+        try:
+            schema_result = await conn.runSchemaChange(schema_stmts, graph_name)
+        except Exception as e:
             return format_error(
                 operation="create_graph",
-                error=TigerGraphException(schema_result_str),
+                error=e,
                 context={
                     "graph_name": graph_name,
-                    "step": "SCHEMA_CHANGE JOB",
+                    "step": "SCHEMA_CHANGE",
                     "vertex_types": vertex_names,
                     "edge_types": edge_names,
-                    "gsql_command": schema_gsql,
                 },
                 suggestions=[
                     "Check vertex/edge type definitions for syntax errors",
@@ -654,9 +626,6 @@ async def create_graph(
                     f"The empty graph '{graph_name}' was created; use drop_graph('{graph_name}') to clean up if needed",
                 ],
             )
-
-        # ── Success ──────────────────────────────────────────────────
-        full_gsql = f"{create_graph_gsql}\n\n{schema_gsql}"
 
         return format_success(
             operation="create_graph",
@@ -670,7 +639,6 @@ async def create_graph(
                 "edge_type_count": len(edge_names),
                 "vertex_types": vertex_names,
                 "edge_types": edge_names,
-                "gsql_command": full_gsql,
             },
             suggestions=[
                 f"View graph: show_graph_details(graph_name='{graph_name}')",
@@ -695,19 +663,8 @@ async def drop_graph(profile: Optional[str] = None, graph_name: str = None) -> L
     """Drop a graph."""
     try:
         conn = get_connection(profile=profile, graph_name=graph_name)
-        result = await conn.gsql(f"DROP GRAPH {graph_name}")
-        result_str = str(result) if result else ""
-
-        if gsql_has_error(result_str):
-            return format_error(
-                operation="drop_graph",
-                error=TigerGraphException(result_str),
-                context={"graph_name": graph_name},
-                suggestions=[
-                    "Use list_graphs() to verify the graph name exists",
-                    "Ensure you have the required permissions to drop the graph",
-                ],
-            )
+        result = await conn.dropGraph(graph_name)
+        result_str = result.get("message", str(result))
 
         return format_success(
             operation="drop_graph",
@@ -784,54 +741,34 @@ async def list_graphs(profile: Optional[str] = None, **kwargs) -> List[TextConte
     """
     try:
         conn = get_connection(profile=profile)
-        result = await conn.gsql("SHOW GRAPH *")
-        result_str = str(result) if result else ""
+        result = await conn.listGraphs()
 
-        if gsql_has_error(result_str):
-            return format_error(
-                operation="list_graphs",
-                error=TigerGraphException(result_str),
-                context={},
-            )
+        if result and isinstance(result[0], dict):
+            graph_names = [g.get("GraphName", g.get("name", "")) for g in result]
+            graph_names = [g for g in graph_names if g]
+        else:
+            graph_names = [str(g) for g in result if g]
 
-        # Extract graph names from "SHOW GRAPH *" output.
-        # Typical output lines look like:
-        #   - Graph MyGraph(Person:v, Knows:e)
-        #   - Graph AnotherGraph(...)
-        # We match lines containing "Graph " and extract the name before '('.
-        import re
-        graph_names: list[str] = []
-        for match in re.finditer(r'Graph\s+(\w+)', result_str):
-            name = match.group(1)
-            if name.lower() not in ('graph', 'graphs'):
-                graph_names.append(name)
-
-        # Deduplicate while preserving order
-        seen: set[str] = set()
-        unique_graphs = [g for g in graph_names if not (g in seen or seen.add(g))]
-
-        if unique_graphs:
+        if graph_names:
             return format_success(
                 operation="list_graphs",
-                summary=f"Found {len(unique_graphs)} graph(s)",
+                summary=f"Found {len(graph_names)} graph(s)",
                 data={
-                    "graphs": unique_graphs,
-                    "count": len(unique_graphs),
+                    "graphs": graph_names,
+                    "count": len(graph_names),
                 },
                 suggestions=[
-                    f"Full listing: show_graph_details(graph_name='{unique_graphs[0]}')",
-                    f"Schema only: get_graph_schema(graph_name='{unique_graphs[0]}')",
+                    f"Full listing: show_graph_details(graph_name='{graph_names[0]}')",
+                    f"Schema only: get_graph_schema(graph_name='{graph_names[0]}')",
                 ],
             )
         else:
-            # Parsing found nothing — return raw output so user/LLM can read it
             return format_success(
                 operation="list_graphs",
-                summary="No graph names extracted (raw output included)",
+                summary="No graphs found",
                 data={
                     "graphs": [],
                     "count": 0,
-                    "raw_output": result_str,
                 },
                 suggestions=[
                     "Create a graph: create_graph(...)",

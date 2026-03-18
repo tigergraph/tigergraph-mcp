@@ -74,6 +74,14 @@ class TestRunInstalledQuery(MCPToolTestBase):
         self.assert_success(result)
         self.mock_conn.runInstalledQuery.assert_called_once_with("simple", {})
 
+    @patch(PATCH_TARGET)
+    async def test_exception(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.runInstalledQuery.side_effect = Exception("query not found")
+
+        result = await run_installed_query(query_name="missing")
+        self.assert_error(result)
+
 
 class TestInstallQuery(MCPToolTestBase):
 
@@ -112,7 +120,7 @@ class TestDropQuery(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_success(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "Successfully dropped query q1"
+        self.mock_conn.dropQueries.return_value = {"error": False, "message": "Successfully dropped query q1"}
 
         result = await drop_query(query_name="q1")
         self.assert_success(result)
@@ -120,7 +128,7 @@ class TestDropQuery(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_gsql_error(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "Query 'q1' does not exist"
+        self.mock_conn.dropQueries.side_effect = Exception("Query 'q1' does not exist")
 
         result = await drop_query(query_name="q1")
         self.assert_error(result)
@@ -137,6 +145,14 @@ class TestShowQuery(MCPToolTestBase):
         resp = self.assert_success(result)
         self.assertIn("myQ", resp["data"]["query_name"])
 
+    @patch(PATCH_TARGET)
+    async def test_exception(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.showQuery.side_effect = Exception("query not found")
+
+        result = await show_query(query_name="nope")
+        self.assert_error(result)
+
 
 class TestGetQueryMetadata(MCPToolTestBase):
 
@@ -147,6 +163,14 @@ class TestGetQueryMetadata(MCPToolTestBase):
 
         result = await get_query_metadata(query_name="myQ")
         self.assert_success(result)
+
+    @patch(PATCH_TARGET)
+    async def test_exception(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.getQueryMetadata.side_effect = Exception("not found")
+
+        result = await get_query_metadata(query_name="nope")
+        self.assert_error(result)
 
 
 class TestIsQueryInstalled(MCPToolTestBase):

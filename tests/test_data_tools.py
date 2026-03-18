@@ -8,6 +8,8 @@ from tigergraph_mcp.tools.data_tools import (
     _generate_loading_job_gsql,
     create_loading_job,
     drop_loading_job,
+    get_loading_jobs,
+    get_loading_job_status,
     run_loading_job_with_data,
     run_loading_job_with_file,
 )
@@ -259,6 +261,68 @@ class TestRunLoadingJobWithData(MCPToolTestBase):
             data="garbage",
             file_tag="f1",
         )
+        self.assert_error(result)
+
+
+class TestGetLoadingJobs(MCPToolTestBase):
+
+    @patch(PATCH_TARGET)
+    async def test_with_results(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.getLoadingJobs.return_value = [
+            {"jobName": "load_people"},
+            {"jobName": "load_orders"},
+        ]
+
+        result = await get_loading_jobs()
+        resp = self.assert_success(result)
+        self.assertEqual(resp["data"]["count"], 2)
+
+    @patch(PATCH_TARGET)
+    async def test_empty(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.getLoadingJobs.return_value = []
+
+        result = await get_loading_jobs()
+        self.assert_success(result)
+
+    @patch(PATCH_TARGET)
+    async def test_exception(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.getLoadingJobs.side_effect = Exception("connection error")
+
+        result = await get_loading_jobs()
+        self.assert_error(result)
+
+
+class TestGetLoadingJobStatus(MCPToolTestBase):
+
+    @patch(PATCH_TARGET)
+    async def test_with_status(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.getLoadingJobStatus.return_value = {
+            "status": "RUNNING",
+            "progress": "50%",
+        }
+
+        result = await get_loading_job_status(job_id="job_123")
+        resp = self.assert_success(result)
+        self.assertEqual(resp["data"]["job_id"], "job_123")
+
+    @patch(PATCH_TARGET)
+    async def test_no_status(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.getLoadingJobStatus.return_value = None
+
+        result = await get_loading_job_status(job_id="missing_job")
+        self.assert_error(result)
+
+    @patch(PATCH_TARGET)
+    async def test_exception(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.getLoadingJobStatus.side_effect = Exception("invalid job id")
+
+        result = await get_loading_job_status(job_id="bad")
         self.assert_error(result)
 
 

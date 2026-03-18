@@ -608,22 +608,8 @@ async def drop_query(
     """Drop (delete) an installed query."""
     try:
         conn = get_connection(profile=profile, graph_name=graph_name)
-        result = await conn.gsql(f"DROP QUERY {query_name}")
-        result_str = str(result) if result else ""
-
-        if gsql_has_error(result_str):
-            return format_error(
-                operation="drop_query",
-                error=TigerGraphException(result_str),
-                context={
-                    "query_name": query_name,
-                    "graph_name": conn.graphname,
-                },
-                suggestions=[
-                    "Verify the query name is correct",
-                    "List installed queries: show_graph_details()",
-                ],
-            )
+        result = await conn.dropQueries(query_name)
+        result_str = result.get("message", str(result))
 
         return format_success(
             operation="drop_query",

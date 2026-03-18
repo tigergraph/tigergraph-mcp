@@ -143,7 +143,7 @@ class TestGetVectorIndexStatus(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_ready(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn._req.return_value = {"NeedRebuildServers": []}
+        self.mock_conn.getVectorIndexStatus.return_value = {"NeedRebuildServers": []}
 
         result = await get_vector_index_status()
         resp = self.assert_success(result)
@@ -152,7 +152,7 @@ class TestGetVectorIndexStatus(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_rebuilding(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn._req.return_value = {"NeedRebuildServers": ["server1"]}
+        self.mock_conn.getVectorIndexStatus.return_value = {"NeedRebuildServers": ["server1"]}
 
         result = await get_vector_index_status()
         resp = self.assert_success(result)
@@ -161,7 +161,7 @@ class TestGetVectorIndexStatus(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_no_result(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn._req.return_value = None
+        self.mock_conn.getVectorIndexStatus.return_value = None
 
         result = await get_vector_index_status()
         self.assert_success(result)
@@ -169,7 +169,7 @@ class TestGetVectorIndexStatus(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_exception(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn._req.side_effect = Exception("timeout")
+        self.mock_conn.getVectorIndexStatus.side_effect = Exception("timeout")
 
         result = await get_vector_index_status()
         self.assert_error(result)
@@ -221,12 +221,11 @@ class TestSearchTopKSimilarity(MCPToolTestBase):
     async def test_success_flow(self, mock_gc):
         """Verify create → install → run → drop lifecycle."""
         mock_gc.return_value = self.mock_conn
-        # LS for dimension check
         self.mock_conn.gsql.side_effect = [
             'embedding(Dimension=3, Metric="COSINE")',  # LS
             "Successfully created and installed query",   # CREATE+INSTALL
-            "Successfully dropped query",                 # DROP
         ]
+        self.mock_conn.dropQueries.return_value = {"error": False, "message": "Successfully dropped query"}
         self.mock_conn.runInstalledQuery.return_value = [
             {"v": [{"v_id": "v1"}]},
             {"distances": {"v1": 0.95}},
@@ -277,8 +276,8 @@ class TestSearchTopKSimilarity(MCPToolTestBase):
         self.mock_conn.gsql.side_effect = [
             "",  # LS
             "Successfully created query",   # CREATE+INSTALL
-            "Successfully dropped query",   # DROP (in finally)
         ]
+        self.mock_conn.dropQueries.return_value = {"error": False, "message": "OK"}
         self.mock_conn.runInstalledQuery.side_effect = Exception("runtime error")
 
         result = await search_top_k_similarity(
@@ -287,12 +286,7 @@ class TestSearchTopKSimilarity(MCPToolTestBase):
             query_vector=[0.1],
         )
         self.assert_error(result)
-        # DROP should have been called (either in finally or in except)
-        drop_calls = [
-            c for c in self.mock_conn.gsql.call_args_list
-            if "DROP QUERY" in str(c)
-        ]
-        self.assertTrue(len(drop_calls) > 0, "Temp query should be dropped on error")
+        self.mock_conn.dropQueries.assert_called()
 
 
 class TestFetchVector(MCPToolTestBase):
@@ -300,10 +294,8 @@ class TestFetchVector(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_success_flow(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.side_effect = [
-            "Successfully created and installed query",
-            "Successfully dropped query",
-        ]
+        self.mock_conn.gsql.return_value = "Successfully created and installed query"
+        self.mock_conn.dropQueries.return_value = {"error": False, "message": "OK"}
         self.mock_conn.runInstalledQuery.return_value = [
             {"v": [{"v_id": "v1", "embedding": [0.1, 0.2]}]}
         ]
@@ -326,10 +318,8 @@ class TestFetchVector(MCPToolTestBase):
     async def test_cleanup_on_exception(self, mock_gc):
         """NameError should not occur if get_connection succeeds but run fails."""
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.side_effect = [
-            "Successfully created query",
-            "OK",  # DROP
-        ]
+        self.mock_conn.gsql.return_value = "Successfully created query"
+        self.mock_conn.dropQueries.return_value = {"error": False, "message": "OK"}
         self.mock_conn.runInstalledQuery.side_effect = Exception("fail")
 
         result = await fetch_vector(vertex_type="Person", vertex_ids=["v1"])
@@ -354,11 +344,8 @@ class TestLoadVectorsFromCsv(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_success(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.side_effect = [
-            "Job not found",               # DROP (ignored)
-            "Successfully created job",     # CREATE
-            "Successfully dropped job",     # DROP after run
-        ]
+        self.mock_conn.dropLoadingJob.return_value = {"error": False, "message": "Job not found"}
+        self.mock_conn.gsql.return_value = "Successfully created job"
         self.mock_conn.runLoadingJobWithFile.return_value = {"loaded": 100}
 
         result = await load_vectors_from_csv(
@@ -373,11 +360,11 @@ class TestLoadVectorsFromCsv(MCPToolTestBase):
     async def test_drop_before_create_does_not_fail(self, mock_gc):
         """The bug fix: DROP JOB is now separate, so its error doesn't block CREATE."""
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.side_effect = [
-            Exception("job does not exist"),  # DROP — exception swallowed
-            "Successfully created loading job",
-            "OK",  # DROP after run
+        self.mock_conn.dropLoadingJob.side_effect = [
+            Exception("job does not exist"),  # before create — swallowed
+            {"error": False, "message": "OK"},  # after run
         ]
+        self.mock_conn.gsql.return_value = "Successfully created loading job"
         self.mock_conn.runLoadingJobWithFile.return_value = {"loaded": 50}
 
         result = await load_vectors_from_csv(
@@ -390,10 +377,8 @@ class TestLoadVectorsFromCsv(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_create_gsql_error(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.side_effect = [
-            None,  # DROP
-            "SEMANTIC ERROR: bad vertex",
-        ]
+        self.mock_conn.dropLoadingJob.return_value = {"error": False, "message": "OK"}
+        self.mock_conn.gsql.return_value = "SEMANTIC ERROR: bad vertex"
 
         result = await load_vectors_from_csv(
             vertex_type="Bad",
@@ -414,7 +399,8 @@ class TestLoadVectorsFromCsv(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_custom_separators(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.side_effect = [None, "OK", "OK"]
+        self.mock_conn.dropLoadingJob.return_value = {"error": False, "message": "OK"}
+        self.mock_conn.gsql.return_value = "OK"
         self.mock_conn.runLoadingJobWithFile.return_value = {"loaded": 10}
 
         result = await load_vectors_from_csv(
@@ -426,7 +412,7 @@ class TestLoadVectorsFromCsv(MCPToolTestBase):
             header=True,
         )
         self.assert_success(result)
-        create_call = self.mock_conn.gsql.call_args_list[1][0][0]
+        create_call = self.mock_conn.gsql.call_args_list[0][0][0]
         self.assertIn("\t", create_call)
         self.assertIn(";", create_call)
         self.assertIn("HEADER", create_call)
@@ -437,11 +423,8 @@ class TestLoadVectorsFromJson(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_success(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.side_effect = [
-            None,                           # DROP
-            "Successfully created job",     # CREATE
-            "OK",                           # DROP after run
-        ]
+        self.mock_conn.dropLoadingJob.return_value = {"error": False, "message": "OK"}
+        self.mock_conn.gsql.return_value = "Successfully created job"
         self.mock_conn.runLoadingJobWithFile.return_value = {"loaded": 200}
 
         result = await load_vectors_from_json(
@@ -455,11 +438,11 @@ class TestLoadVectorsFromJson(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_drop_before_create_does_not_fail(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.side_effect = [
-            Exception("job does not exist"),
-            "Successfully created job",
-            "OK",
+        self.mock_conn.dropLoadingJob.side_effect = [
+            Exception("job does not exist"),  # before create — swallowed
+            {"error": False, "message": "OK"},  # after run
         ]
+        self.mock_conn.gsql.return_value = "Successfully created job"
         self.mock_conn.runLoadingJobWithFile.return_value = {"loaded": 1}
 
         result = await load_vectors_from_json(
@@ -481,7 +464,8 @@ class TestLoadVectorsFromJson(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_json_file_clause_present(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.side_effect = [None, "OK", "OK"]
+        self.mock_conn.dropLoadingJob.return_value = {"error": False, "message": "OK"}
+        self.mock_conn.gsql.return_value = "OK"
         self.mock_conn.runLoadingJobWithFile.return_value = {}
 
         await load_vectors_from_json(
@@ -489,7 +473,7 @@ class TestLoadVectorsFromJson(MCPToolTestBase):
             vector_attribute="emb",
             file_path="/data/v.jsonl",
         )
-        create_call = self.mock_conn.gsql.call_args_list[1][0][0]
+        create_call = self.mock_conn.gsql.call_args_list[0][0][0]
         self.assertIn('JSON_FILE="true"', create_call)
 
 
@@ -533,8 +517,8 @@ class TestProfilePropagation(MCPToolTestBase):
         self.mock_conn.gsql.side_effect = [
             '- emb(Dimension=3, IndexType="HNSW", DataType="FLOAT", Metric="COSINE")',
             "OK",
-            "OK",
         ]
+        self.mock_conn.dropQueries.return_value = {"error": False, "message": "OK"}
         self.mock_conn.runInstalledQuery.return_value = [{"results": []}]
 
         result = await search_top_k_similarity(

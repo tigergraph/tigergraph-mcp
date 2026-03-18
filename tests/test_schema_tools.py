@@ -135,7 +135,8 @@ class TestCreateGraph(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_success(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "Successfully created graph"
+        self.mock_conn.createGraph.return_value = {"error": False, "message": "Successfully created graph"}
+        self.mock_conn.runSchemaChange.return_value = {"error": False, "message": "Schema changed successfully"}
 
         result = await create_graph(
             graph_name="NewGraph",
@@ -144,12 +145,13 @@ class TestCreateGraph(MCPToolTestBase):
         )
         resp = self.assert_success(result)
         self.assertIn("NewGraph", resp["summary"])
-        self.assertEqual(self.mock_conn.gsql.call_count, 2)
+        self.mock_conn.createGraph.assert_called_once_with("NewGraph")
+        self.mock_conn.runSchemaChange.assert_called_once()
 
     @patch(PATCH_TARGET)
     async def test_gsql_error_on_create(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = 'Encountered "CREATE" — already exists'
+        self.mock_conn.createGraph.side_effect = Exception('Graph already exists')
 
         result = await create_graph(graph_name="Dup", vertex_types=[{"name": "V", "attributes": []}])
         self.assert_error(result)
@@ -157,7 +159,7 @@ class TestCreateGraph(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_empty_graph(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "Successfully created graph"
+        self.mock_conn.createGraph.return_value = {"error": False, "message": "Successfully created graph"}
 
         result = await create_graph(graph_name="EmptyG", vertex_types=[])
         resp = self.assert_success(result)
@@ -169,7 +171,7 @@ class TestDropGraph(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_success(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "Successfully dropped graph"
+        self.mock_conn.dropGraph.return_value = {"error": False, "message": "Successfully dropped graph"}
 
         result = await drop_graph(graph_name="OldGraph")
         self.assert_success(result)
@@ -177,7 +179,7 @@ class TestDropGraph(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_gsql_error(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "Graph 'OldGraph' does not exist"
+        self.mock_conn.dropGraph.side_effect = Exception("Graph 'OldGraph' does not exist")
 
         result = await drop_graph(graph_name="OldGraph")
         self.assert_error(result)
@@ -188,10 +190,10 @@ class TestListGraphs(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_parse_graph_names(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = (
-            "- Graph SocialNetwork(Person:v, KNOWS:e)\n"
-            "- Graph FinanceGraph(Account:v, Transfer:e)\n"
-        )
+        self.mock_conn.listGraphs.return_value = [
+            {"GraphName": "SocialNetwork", "VertexTypes": ["Person"], "EdgeTypes": ["KNOWS"]},
+            {"GraphName": "FinanceGraph", "VertexTypes": ["Account"], "EdgeTypes": ["Transfer"]},
+        ]
         result = await list_graphs()
         resp = self.assert_success(result)
         self.assertIn("SocialNetwork", resp["data"]["graphs"])
@@ -201,7 +203,7 @@ class TestListGraphs(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_no_graphs(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = ""
+        self.mock_conn.listGraphs.return_value = []
 
         result = await list_graphs()
         resp = self.assert_success(result)
@@ -241,6 +243,25 @@ class TestGetGlobalSchema(MCPToolTestBase):
         result = await get_global_schema()
         self.assert_success(result)
 
+    @patch(PATCH_TARGET)
+    async def test_exception(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.gsql.side_effect = Exception("connection timeout")
+
+        result = await get_global_schema()
+        self.assert_error(result)
+
+
+class TestListGraphsError(MCPToolTestBase):
+
+    @patch(PATCH_TARGET)
+    async def test_exception(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.listGraphs.side_effect = Exception("connection refused")
+
+        result = await list_graphs()
+        self.assert_error(result)
+
 
 class TestClearGraphData(MCPToolTestBase):
 
@@ -269,6 +290,14 @@ class TestClearGraphData(MCPToolTestBase):
         resp = self.assert_success(result)
         self.mock_conn.delVertices.assert_called_once_with("Person")
 
+    @patch(PATCH_TARGET)
+    async def test_exception(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.getVertexTypes.side_effect = Exception("timeout")
+
+        result = await clear_graph_data(confirm=True)
+        self.assert_error(result)
+
 
 class TestShowGraphDetails(MCPToolTestBase):
 
@@ -290,6 +319,14 @@ class TestShowGraphDetails(MCPToolTestBase):
         resp = self.assert_success(result)
         self.assertEqual(resp["data"]["detail_type"], "query")
 
+    @patch(PATCH_TARGET)
+    async def test_exception(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.gsql.side_effect = Exception("timeout")
+
+        result = await show_graph_details()
+        self.assert_error(result)
+
 
 class TestProfilePropagation(MCPToolTestBase):
     """Verify that the profile parameter is forwarded to get_connection."""
@@ -297,7 +334,7 @@ class TestProfilePropagation(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_list_graphs_with_profile(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "- Graph G1(V:v)"
+        self.mock_conn.listGraphs.return_value = [{"GraphName": "G1", "VertexTypes": ["V"], "EdgeTypes": []}]
 
         result = await list_graphs(profile="staging")
         self.assert_success(result)
@@ -333,7 +370,7 @@ class TestProfilePropagation(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_drop_graph_with_profile(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "Successfully dropped graph"
+        self.mock_conn.dropGraph.return_value = {"error": False, "message": "Successfully dropped graph"}
 
         result = await drop_graph(profile="staging", graph_name="OldGraph")
         self.assert_success(result)
@@ -342,7 +379,7 @@ class TestProfilePropagation(MCPToolTestBase):
     @patch(PATCH_TARGET)
     async def test_none_profile_is_default(self, mock_gc):
         mock_gc.return_value = self.mock_conn
-        self.mock_conn.gsql.return_value = "- Graph G1(V:v)"
+        self.mock_conn.listGraphs.return_value = [{"GraphName": "G1", "VertexTypes": ["V"], "EdgeTypes": []}]
 
         result = await list_graphs()
         self.assert_success(result)

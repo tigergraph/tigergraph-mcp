@@ -555,13 +555,10 @@ async def get_vector_index_status(
     try:
         conn = get_connection(profile=profile, graph_name=graph_name)
 
-        path = f"/vector/status/{conn.graphname}"
-        if vertex_type:
-            path += f"/{vertex_type}"
-            if vector_name:
-                path += f"/{vector_name}"
-
-        result = await conn._req("GET", conn.restppUrl + path)
+        result = await conn.getVectorIndexStatus(
+            vertexType=vertex_type,
+            vectorName=vector_name,
+        )
 
         if result:
             need_rebuild = result.get("NeedRebuildServers", [])
@@ -778,7 +775,7 @@ async def search_top_k_similarity(
             )
         finally:
             try:
-                await conn.gsql(f"USE GRAPH {gname}\nDROP QUERY {query_name}")
+                await conn.dropQueries(query_name)
             except Exception:
                 pass
 
@@ -802,7 +799,7 @@ async def search_top_k_similarity(
     except Exception as e:
         if query_name and gname:
             try:
-                await conn.gsql(f"USE GRAPH {gname}\nDROP QUERY {query_name}")
+                await conn.dropQueries(query_name)
             except Exception:
                 pass
         return format_error(
@@ -883,7 +880,7 @@ async def fetch_vector(
             run_result = await conn.runInstalledQuery(query_name)
         finally:
             try:
-                await conn.gsql(f"USE GRAPH {gname}\nDROP QUERY {query_name}")
+                await conn.dropQueries(query_name)
             except Exception:
                 pass
 
@@ -905,7 +902,7 @@ async def fetch_vector(
     except Exception as e:
         if query_name and gname:
             try:
-                await conn.gsql(f"USE GRAPH {gname}\nDROP QUERY {query_name}")
+                await conn.dropQueries(query_name)
             except Exception:
                 pass
         return format_error(
@@ -962,7 +959,7 @@ async def load_vectors_from_csv(
         header_clause = f', HEADER="true"' if header else ""
 
         try:
-            await conn.gsql(f"USE GRAPH {gname}\nDROP JOB {job_name}")
+            await conn.dropLoadingJob(job_name)
         except Exception:
             pass
 
@@ -998,7 +995,7 @@ async def load_vectors_from_csv(
         )
 
         try:
-            await conn.gsql(f"USE GRAPH {gname}\nDROP JOB {job_name}")
+            await conn.dropLoadingJob(job_name)
         except Exception:
             pass
 
@@ -1020,7 +1017,7 @@ async def load_vectors_from_csv(
     except Exception as e:
         if gname:
             try:
-                await conn.gsql(f"USE GRAPH {gname}\nDROP JOB {job_name}")
+                await conn.dropLoadingJob(job_name)
             except Exception:
                 pass
         return format_error(
@@ -1072,7 +1069,7 @@ async def load_vectors_from_json(
         file_tag = "vec_file"
 
         try:
-            await conn.gsql(f"USE GRAPH {gname}\nDROP JOB {job_name}")
+            await conn.dropLoadingJob(job_name)
         except Exception:
             pass
 
@@ -1107,7 +1104,7 @@ async def load_vectors_from_json(
         )
 
         try:
-            await conn.gsql(f"USE GRAPH {gname}\nDROP JOB {job_name}")
+            await conn.dropLoadingJob(job_name)
         except Exception:
             pass
 
@@ -1129,7 +1126,7 @@ async def load_vectors_from_json(
     except Exception as e:
         if gname:
             try:
-                await conn.gsql(f"USE GRAPH {gname}\nDROP JOB {job_name}")
+                await conn.dropLoadingJob(job_name)
             except Exception:
                 pass
         return format_error(

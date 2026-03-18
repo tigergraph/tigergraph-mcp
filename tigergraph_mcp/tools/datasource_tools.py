@@ -15,6 +15,10 @@ from ..tool_names import TigerGraphToolName
 from ..connection_manager import get_connection
 
 
+# ---------------------------------------------------------------------------
+# Input models
+# ---------------------------------------------------------------------------
+
 class CreateDataSourceToolInput(BaseModel):
     """Input schema for creating a data source."""
     profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
@@ -62,6 +66,10 @@ class PreviewSampleDataToolInput(BaseModel):
     graph_name: Optional[str] = Field(None, description="Name of the graph context. If not provided, uses default connection.")
 
 
+# ---------------------------------------------------------------------------
+# Tool definitions
+# ---------------------------------------------------------------------------
+
 create_data_source_tool = Tool(
     name=TigerGraphToolName.CREATE_DATA_SOURCE,
     description="Create a new data source for loading data (S3, GCS, Azure Blob, or local).",
@@ -105,6 +113,10 @@ preview_sample_data_tool = Tool(
 )
 
 
+# ---------------------------------------------------------------------------
+# Tool implementations
+# ---------------------------------------------------------------------------
+
 async def create_data_source(
     data_source_name: str,
     data_source_type: str,
@@ -112,26 +124,13 @@ async def create_data_source(
     profile: Optional[str] = None,
 ) -> List[TextContent]:
     """Create a new data source."""
-    from ..response_formatter import format_success, format_error, gsql_has_error
+    from ..response_formatter import format_success, format_error
 
     try:
         conn = get_connection(profile=profile)
-
-        config_str = ", ".join([f'{k}="{v}"' for k, v in config.items()])
-
-        gsql_cmd = f"CREATE DATA_SOURCE {data_source_type.upper()} {data_source_name}"
-        if config_str:
-            gsql_cmd += f" = ({config_str})"
-
-        result = await conn.gsql(gsql_cmd)
-        result_str = str(result) if result else ""
-
-        if gsql_has_error(result_str):
-            return format_error(
-                operation="create_data_source",
-                error=Exception(f"Could not create data source:\n{result_str}"),
-                context={"data_source_name": data_source_name, "data_source_type": data_source_type},
-            )
+        full_config = {"type": data_source_type.lower(), **config}
+        result = await conn.createDataSource(dsName=data_source_name, config=full_config)
+        result_str = result.get("message", str(result))
 
         return format_success(
             operation="create_data_source",
@@ -156,23 +155,12 @@ async def update_data_source(
     profile: Optional[str] = None,
 ) -> List[TextContent]:
     """Update an existing data source."""
-    from ..response_formatter import format_success, format_error, gsql_has_error
+    from ..response_formatter import format_success, format_error
 
     try:
         conn = get_connection(profile=profile)
-
-        config_str = ", ".join([f'{k}="{v}"' for k, v in config.items()])
-        gsql_cmd = f"ALTER DATA_SOURCE {data_source_name} = ({config_str})"
-
-        result = await conn.gsql(gsql_cmd)
-        result_str = str(result) if result else ""
-
-        if gsql_has_error(result_str):
-            return format_error(
-                operation="update_data_source",
-                error=Exception(f"Could not update data source:\n{result_str}"),
-                context={"data_source_name": data_source_name},
-            )
+        result = await conn.updateDataSource(dsName=data_source_name, config=config)
+        result_str = result.get("message", str(result))
 
         return format_success(
             operation="update_data_source",
@@ -192,25 +180,16 @@ async def get_data_source(
     profile: Optional[str] = None,
 ) -> List[TextContent]:
     """Get information about a data source."""
-    from ..response_formatter import format_success, format_error, gsql_has_error
+    from ..response_formatter import format_success, format_error
 
     try:
         conn = get_connection(profile=profile)
-
-        result = await conn.gsql(f"SHOW DATA_SOURCE {data_source_name}")
-        result_str = str(result) if result else ""
-
-        if gsql_has_error(result_str):
-            return format_error(
-                operation="get_data_source",
-                error=Exception(f"Could not retrieve data source:\n{result_str}"),
-                context={"data_source_name": data_source_name},
-            )
+        result = await conn.getDataSource(dsName=data_source_name)
 
         return format_success(
             operation="get_data_source",
             summary=f"Data source '{data_source_name}' details",
-            data={"data_source_name": data_source_name, "details": result_str},
+            data={"data_source_name": data_source_name, "details": result},
         )
     except Exception as e:
         return format_error(
@@ -225,20 +204,12 @@ async def drop_data_source(
     profile: Optional[str] = None,
 ) -> List[TextContent]:
     """Drop a data source."""
-    from ..response_formatter import format_success, format_error, gsql_has_error
+    from ..response_formatter import format_success, format_error
 
     try:
         conn = get_connection(profile=profile)
-
-        result = await conn.gsql(f"DROP DATA_SOURCE {data_source_name}")
-        result_str = str(result) if result else ""
-
-        if gsql_has_error(result_str):
-            return format_error(
-                operation="drop_data_source",
-                error=Exception(f"Could not drop data source:\n{result_str}"),
-                context={"data_source_name": data_source_name},
-            )
+        result = await conn.dropDataSource(dsName=data_source_name)
+        result_str = result.get("message", str(result))
 
         return format_success(
             operation="drop_data_source",
@@ -260,25 +231,16 @@ async def get_all_data_sources(
     **kwargs,
 ) -> List[TextContent]:
     """Get all data sources."""
-    from ..response_formatter import format_success, format_error, gsql_has_error
+    from ..response_formatter import format_success, format_error
 
     try:
         conn = get_connection(profile=profile)
-
-        result = await conn.gsql("SHOW DATA_SOURCE *")
-        result_str = str(result) if result else ""
-
-        if gsql_has_error(result_str):
-            return format_error(
-                operation="get_all_data_sources",
-                error=Exception(f"Could not retrieve data sources:\n{result_str}"),
-                context={},
-            )
+        result = await conn.getDataSources()
 
         return format_success(
             operation="get_all_data_sources",
             summary="All data sources retrieved",
-            data={"details": result_str},
+            data={"details": result},
             suggestions=["Create a data source: create_data_source(...)"],
         )
     except Exception as e:
@@ -294,7 +256,7 @@ async def drop_all_data_sources(
     confirm: bool = False,
 ) -> List[TextContent]:
     """Drop all data sources."""
-    from ..response_formatter import format_success, format_error, gsql_has_error
+    from ..response_formatter import format_success, format_error
 
     if not confirm:
         return format_error(
@@ -309,16 +271,8 @@ async def drop_all_data_sources(
 
     try:
         conn = get_connection(profile=profile)
-
-        result = await conn.gsql("DROP DATA_SOURCE *")
-        result_str = str(result) if result else ""
-
-        if gsql_has_error(result_str):
-            return format_error(
-                operation="drop_all_data_sources",
-                error=Exception(f"Could not drop all data sources:\n{result_str}"),
-                context={},
-            )
+        result = await conn.dropAllDataSources()
+        result_str = result.get("message", str(result))
 
         return format_success(
             operation="drop_all_data_sources",
@@ -341,32 +295,36 @@ async def preview_sample_data(
     profile: Optional[str] = None,
     graph_name: Optional[str] = None,
 ) -> List[TextContent]:
-    """Preview sample data from a file."""
-    from ..response_formatter import format_success, format_error, gsql_has_error
+    """Preview sample data from a file in a data source."""
+    from ..response_formatter import format_success, format_error
 
     try:
         conn = get_connection(profile=profile, graph_name=graph_name)
-
-        gsql_cmd = (
-            f"USE GRAPH {conn.graphname}\n"
-            f'SHOW DATA_SOURCE {data_source_name} FILE "{file_path}" LIMIT {num_rows}'
+        result = await conn.previewSampleData(
+            dsName=data_source_name,
+            path=file_path,
+            size=num_rows,
         )
-
-        result = await conn.gsql(gsql_cmd)
-        result_str = str(result) if result else ""
-
-        if gsql_has_error(result_str):
-            return format_error(
-                operation="preview_sample_data",
-                error=Exception(f"Could not preview data:\n{result_str}"),
-                context={"data_source_name": data_source_name, "file_path": file_path},
-            )
 
         return format_success(
             operation="preview_sample_data",
             summary=f"Sample data from '{file_path}' (first {num_rows} rows)",
-            data={"data_source_name": data_source_name, "file_path": file_path, "preview": result_str},
+            data={
+                "data_source_name": data_source_name,
+                "file_path": file_path,
+                "preview": result,
+            },
             metadata={"graph_name": conn.graphname},
+        )
+    except NotImplementedError as e:
+        return format_error(
+            operation="preview_sample_data",
+            error=e,
+            context={"data_source_name": data_source_name, "file_path": file_path},
+            suggestions=[
+                "File content preview requires TigerGraph 4.x.",
+                "On 3.x, access the file directly via your cloud storage provider.",
+            ],
         )
     except Exception as e:
         return format_error(
@@ -374,4 +332,3 @@ async def preview_sample_data(
             error=e,
             context={"data_source_name": data_source_name, "file_path": file_path},
         )
-
