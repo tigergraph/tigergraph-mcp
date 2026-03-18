@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=67", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tigergraph-mcp"
+version = "1.0.0"
+description = "Model Context Protocol (MCP) server for TigerGraph"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "TigerGraph Inc.", email = "support@tigergraph.com" }]
+requires-python = ">=3.10"
+keywords = ["TigerGraph", "MCP", "Model Context Protocol", "AI", "Graph Database"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "pyTigerGraph>=2.0.1",
+    "mcp>=1.0.0",
+    "pydantic>=2.0.0",
+    "click",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+# pip install tigergraph-mcp[llm]
+# Enables tigergraph__generate_gsql and tigergraph__generate_cypher tools.
+llm = ["langchain>=0.3.0", "langchain-core>=0.3.0"]
+dev = ["pytest>=7.0", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+tigergraph-mcp = "tigergraph_mcp.main:main"
+
+[project.urls]
+"Source" = "https://github.com/tigergraph/tigergraph-mcp"
+"Bug Reports" = "https://github.com/tigergraph/tigergraph-mcp/issues"
+"Documentation" = "https://docs.tigergraph.com/pytigergraph/current/intro/"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tigergraph_mcp*"]
