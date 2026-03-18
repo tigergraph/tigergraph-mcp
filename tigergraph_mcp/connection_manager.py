@@ -210,13 +210,25 @@ class ConnectionManager:
     def get_profile_info(cls, profile: str = "default") -> Dict[str, str]:
         """Return non-sensitive connection info for a profile.
 
-        Never includes password, secret, or tokens.
+        Never includes password, secret, or tokens.  Includes ``auth_mode``
+        so callers can see whether the profile uses token-based or
+        password-based authentication.
         """
+        api_token = _get_env_for_profile(profile, "API_TOKEN", "")
+        jwt_token = _get_env_for_profile(profile, "JWT_TOKEN", "")
+        if jwt_token:
+            auth_mode = "token (JWT)"
+        elif api_token:
+            auth_mode = "token (API)"
+        else:
+            auth_mode = "password"
+
         return {
             "profile": profile,
             "host": _get_env_for_profile(profile, "HOST", "http://127.0.0.1"),
             "graphname": _get_env_for_profile(profile, "GRAPHNAME", ""),
             "username": _get_env_for_profile(profile, "USERNAME", "tigergraph"),
+            "auth_mode": auth_mode,
             "restpp_port": _get_env_for_profile(profile, "RESTPP_PORT", "9000"),
             "gs_port": _get_env_for_profile(profile, "GS_PORT", "14240"),
             "tgcloud": _get_env_for_profile(profile, "TGCLOUD", "false"),

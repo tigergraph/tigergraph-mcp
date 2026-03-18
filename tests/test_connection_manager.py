@@ -144,6 +144,16 @@ class TestConnectionManagerPool(unittest.TestCase):
         conn2 = ConnectionManager.get_connection_for_profile("default")
         self.assertIs(conn1, conn2)
 
+    @patch.dict(
+        os.environ,
+        {"TG_HOST": "http://token-host", "TG_API_TOKEN": "mytoken123"},
+        clear=True,
+    )
+    def test_creates_connection_with_api_token(self):
+        conn = ConnectionManager.get_connection_for_profile("default")
+        self.assertEqual(conn.host, "http://token-host")
+        self.assertEqual(conn.apiToken, "mytoken123")
+
     @patch.dict(os.environ, {"TG_HOST": "http://default-host"}, clear=True)
     def test_graph_name_override(self):
         conn = ConnectionManager.get_connection_for_profile("default", graph_name="MyGraph")
@@ -193,6 +203,58 @@ class TestConnectionManagerProfileInfo(unittest.TestCase):
         self.assertNotIn("secret", info)
         self.assertNotIn("api_token", info)
         self.assertNotIn("jwt_token", info)
+
+    @patch.dict(
+        os.environ,
+        {"TG_HOST": "http://my-host", "TG_USERNAME": "admin"},
+        clear=True,
+    )
+    def test_auth_mode_password(self):
+        info = ConnectionManager.get_profile_info("default")
+        self.assertEqual(info["auth_mode"], "password")
+
+    @patch.dict(
+        os.environ,
+        {"TG_HOST": "http://my-host", "TG_API_TOKEN": "tok123"},
+        clear=True,
+    )
+    def test_auth_mode_api_token(self):
+        info = ConnectionManager.get_profile_info("default")
+        self.assertEqual(info["auth_mode"], "token (API)")
+
+    @patch.dict(
+        os.environ,
+        {"TG_HOST": "http://my-host", "TG_JWT_TOKEN": "jwt.xxx.yyy"},
+        clear=True,
+    )
+    def test_auth_mode_jwt_token(self):
+        info = ConnectionManager.get_profile_info("default")
+        self.assertEqual(info["auth_mode"], "token (JWT)")
+
+    @patch.dict(
+        os.environ,
+        {
+            "TG_HOST": "http://my-host",
+            "TG_API_TOKEN": "tok",
+            "TG_JWT_TOKEN": "jwt.xxx",
+        },
+        clear=True,
+    )
+    def test_jwt_takes_precedence_over_api_token(self):
+        info = ConnectionManager.get_profile_info("default")
+        self.assertEqual(info["auth_mode"], "token (JWT)")
+
+    @patch.dict(
+        os.environ,
+        {
+            "STAGING_TG_HOST": "http://staging",
+            "STAGING_TG_API_TOKEN": "stg_tok",
+        },
+        clear=True,
+    )
+    def test_named_profile_auth_mode_token(self):
+        info = ConnectionManager.get_profile_info("staging")
+        self.assertEqual(info["auth_mode"], "token (API)")
 
 
 class TestGetConnectionFunction(unittest.TestCase):
@@ -252,6 +314,15 @@ class TestGetConnectionFunction(unittest.TestCase):
         self.assertEqual(conn.host, "http://adhoc")
         self.assertEqual(conn.graphname, "AdHocGraph")
         self.assertNotIn("adhoc", ConnectionManager._connection_pool)
+
+    def test_connection_config_with_api_token(self):
+        conn = get_connection(connection_config={
+            "host": "http://token-host",
+            "graphname": "G",
+            "apiToken": "tok_abc",
+        })
+        self.assertEqual(conn.host, "http://token-host")
+        self.assertEqual(conn.apiToken, "tok_abc")
 
 
 class TestBackwardCompatibility(unittest.TestCase):

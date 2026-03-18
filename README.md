@@ -81,7 +81,7 @@ The MCP server reads connection configuration from environment variables. You ca
 Create a `.env` file in your project directory:
 
 ```bash
-# .env
+# .env — Username/Password authentication
 TG_HOST=http://localhost
 TG_GRAPHNAME=MyGraph  # Optional — can be omitted if the database has multiple graphs
 TG_USERNAME=tigergraph
@@ -89,6 +89,17 @@ TG_PASSWORD=tigergraph
 TG_RESTPP_PORT=9000
 TG_GS_PORT=14240
 ```
+
+Or use an API token instead of username/password:
+
+```bash
+# .env — API Token authentication
+TG_HOST=http://localhost
+TG_GRAPHNAME=MyGraph
+TG_API_TOKEN=your_api_token_here
+```
+
+When `TG_API_TOKEN` (or `TG_JWT_TOKEN`) is set, the server uses token-based authentication (`Authorization: Bearer <token>`) and ignores username/password. You can obtain a token via `pyTigerGraph`'s `getToken()` method or from the TigerGraph Admin Portal.
 
 The server loads the `.env` file automatically. Environment variables take precedence over `.env` values.
 
@@ -120,18 +131,18 @@ Each named profile uses a `<PROFILE>_` prefix on the standard `TG_*` variables. 
 ```bash
 # .env
 
-# Default profile (no prefix)
+# Default profile (no prefix) — password auth
 TG_HOST=http://localhost
 TG_USERNAME=tigergraph
 TG_PASSWORD=tigergraph
 TG_GRAPHNAME=MyGraph
 
-# Staging profile
+# Staging profile — token auth
 STAGING_TG_HOST=https://staging.example.com
-STAGING_TG_PASSWORD=staging_secret
+STAGING_TG_API_TOKEN=staging_token_here
 STAGING_TG_TGCLOUD=true
 
-# Production profile
+# Production profile — password auth
 PROD_TG_HOST=https://prod.example.com
 PROD_TG_USERNAME=admin
 PROD_TG_PASSWORD=prod_secret
