@@ -1,0 +1,2 @@
+# tigergraph-mcp
+MCP Server
