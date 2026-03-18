@@ -11,8 +11,17 @@ This module provides MCP server capabilities for TigerGraph, allowing
 AI agents to interact with TigerGraph through the Model Context Protocol.
 """
 
+from importlib.metadata import version as _pkg_version, PackageNotFoundError
+
 from .server import serve, MCPServer
 from .connection_manager import get_connection, ConnectionManager
+
+try:
+    __version__ = _pkg_version("tigergraph-mcp")
+except PackageNotFoundError:
+    __version__ = "1.0.0"
+
+__license__ = "Apache 2"
 
 __all__ = [
     "serve",
