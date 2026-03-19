@@ -1,0 +1,61 @@
+onboarding_detector_task:
+  description: >
+    Analyze the user's most recent command (`last_command`) to determine if they
+    are explicitly requesting onboarding.
+
+    You are given the last user command as `{last_command}`.
+
+    Return:
+    - onboarding (no quotes) only if the user explicitly uses the word "onboarding" or similar
+      like "start onboarding", "walk me through", "get started", "guide me", or "how do I begin".
+    - Otherwise, return None.
+
+    Examples:
+    - "please help create a schema from this CSV" → None
+    - "onboarding" → onboarding
+    - "onboard" → onboarding
+    - "I want to get started" → onboarding
+    - "walk me through the process" → onboarding
+    - "how many nodes are there?" → None
+  expected_output: >
+    The string onboarding or None (no quotes).
+  agent: onboarding_detector_agent
+
+planning_task:
+  description: >
+    Given a conversation between a user and an assistant, identify and extract a structured
+    step-by-step tool execution plan based on the user's latest instructions.
+
+    Conversation history:
+    {conversation_history}
+
+    The user's most recent command is:
+    {last_command}
+
+    Available tools:
+    {tools}
+
+    Produce a JSON array of steps:
+    - `tool_name`: the name of a tool to use (must match one of the provided tool names).
+    - `command`: a short instruction extracted from the user's request.
+
+    Rules:
+    - Never introduce steps the user did not request.
+    - Preserve any user-provided code, URLs, file names, and formatting exactly.
+    - When the same tool needs to be applied to multiple inputs, generate one step per input.
+    - If no tools apply, return the literal None (no quotes).
+
+    Output format:
+    A raw JSON array only (no markdown code fences).
+
+    Example:
+    [
+      {"tool_name": "tigergraph__create_graph", "command": "Create a graph for movie recommendations"},
+      {"tool_name": "tigergraph__preview_sample_data", "command": "Preview file users.csv"}
+    ]
+
+    Or: None
+
+  expected_output: >
+    A JSON array of {tool_name, command} steps, or the literal None.
+  agent: planner_agent

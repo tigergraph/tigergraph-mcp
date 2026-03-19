@@ -1,10 +1,12 @@
-# tigergraph-mcp
+# pyTigerGraph-mcp
 
 Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact with TigerGraph through the MCP standard. All tools use pyTigerGraph's async APIs for optimal performance.
 
 ## Table of Contents
 
+- [Requirements](#requirements)
 - [Installation](#installation)
+- [Getting Started](#getting-started)
 - [Usage](#usage)
   - [Running the MCP Server](#running-the-mcp-server)
   - [Configuration](#configuration)
@@ -21,10 +23,17 @@ Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact w
   - [Tool Discovery](#tool-discovery)
 - [Notes](#notes)
 
+## Requirements
+
+- **Python 3.10, 3.11, or 3.12**
+- **TigerGraph 4.1 or later** — Install from the [TigerGraph Downloads page](https://dl.tigergraph.com/) or use [TigerGraph Savanna](https://savanna.tgcloud.io/) for a managed cloud instance.
+
+> **Recommended: TigerGraph 4.2+** to enable TigerVector and advanced hybrid retrieval features.
+
 ## Installation
 
 ```bash
-pip install tigergraph-mcp
+pip install pyTigerGraph-mcp
 ```
 
 This installs:
@@ -37,10 +46,35 @@ This installs:
 To enable the `tigergraph__generate_gsql` and `tigergraph__generate_cypher` tools (LLM-powered query generation):
 
 ```bash
-pip install "tigergraph-mcp[llm]"
+pip install "pyTigerGraph-mcp[llm]"
 ```
 
-> **Migrating from `pyTigerGraph[mcp]`?** `pip install pyTigerGraph[mcp]` now installs `tigergraph-mcp` automatically. Update your imports from `pyTigerGraph.mcp` to `tigergraph_mcp`.
+> **Migrating from `pyTigerGraph[mcp]`?** `pip install pyTigerGraph[mcp]` now installs `pyTigerGraph-mcp` automatically. Update your imports from `pyTigerGraph.mcp` to `tigergraph_mcp`.
+
+## Getting Started
+
+TigerGraph-MCP supports multiple AI agent frameworks. Choose the one that fits your workflow:
+
+### LangGraph (Recommended)
+
+LangGraph is ideal for building stateful, agent-based workflows with complex tool chaining. Setup guide and full chatbot example:
+
+- [LangGraph Setup](docs/langgraph_setup.md)
+- [Chatbot example code](examples/chatbot_langgraph/)
+- [Example transcripts](docs/chatbot_langgraph_examples/)
+
+### CrewAI
+
+CrewAI provides a simpler starting point for basic agentic workflows with a web-based UI:
+
+- [CrewAI Setup](docs/crewai_setup.md)
+- [Chatbot example code](examples/chatbot_crewai/)
+
+### GitHub Copilot Chat (VS Code)
+
+For quick tasks or straightforward tool invocations directly in your editor:
+
+- [Copilot Chat Setup](docs/copilot_setup.md)
 
 ## Usage
 
@@ -195,7 +229,7 @@ env_dict = dotenv_values(dotenv_path=Path(".env").expanduser().resolve())
 
 client = MultiServerMCPClient(
     {
-        "tigergraph-mcp": {
+        "tigergraph-mcp-server": {
             "transport": "stdio",
             "command": "tigergraph-mcp",
             "args": ["-vv"],

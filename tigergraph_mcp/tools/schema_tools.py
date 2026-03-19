@@ -744,7 +744,7 @@ async def list_graphs(profile: Optional[str] = None, **kwargs) -> List[TextConte
         result = await conn.listGraphs()
 
         if result and isinstance(result[0], dict):
-            graph_names = [g.get("GraphName", g.get("name", "")) for g in result]
+            graph_names = [g.get("GraphName", g.get("graphName", g.get("name", ""))) for g in result]
             graph_names = [g for g in graph_names if g]
         else:
             graph_names = [str(g) for g in result if g]

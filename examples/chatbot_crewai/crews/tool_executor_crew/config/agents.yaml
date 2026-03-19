@@ -1,0 +1,2 @@
+# Agent configs are defined programmatically in tool_executor_crew.py
+# via DOMAIN_AGENT_CONFIG. This file is kept for @CrewBase compatibility.

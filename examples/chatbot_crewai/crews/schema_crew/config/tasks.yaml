@@ -1,0 +1,61 @@
+draft_schema_task:
+  description: >
+    Design a TigerGraph graph schema based on the following data and instructions.
+
+    User command: {command}
+    Data preview: {data_preview}
+    Conversation context: {conversation_history}
+
+    Instructions:
+    1. Analyze column names and sample values to identify entities and relationships.
+    2. Identify primary key columns for each entity.
+    3. Infer TigerGraph data types (STRING, INT, UINT, FLOAT, DOUBLE, DATETIME, BOOL).
+    4. Design edge types connecting entities via foreign key relationships.
+
+    Output format (markdown only, NOT JSON):
+
+    ### Graph Name
+    <GraphName>
+
+    ### Node Types
+    - **<TypeName>** (primary_id: <column>, <TYPE>)
+      - <attr>: <TYPE>
+
+    ### Edge Types
+    - **<EdgeName>** (FROM: <Source>, TO: <Target>, <directed|undirected>)
+      - <attr>: <TYPE>
+
+  expected_output: >
+    A graph schema in the markdown format specified above.
+  agent: draft_schema_agent
+
+edit_schema_task:
+  description: >
+    The user wants to modify this schema draft:
+
+    {current_schema_draft}
+
+    User feedback: {user_feedback}
+
+    Apply the changes and output the updated schema in the same markdown format.
+  expected_output: >
+    The updated graph schema in markdown format.
+  agent: edit_schema_agent
+
+create_schema_task:
+  description: >
+    Create the graph in TigerGraph based on this confirmed schema:
+
+    {current_schema_draft}
+
+    Context: {conversation_history}
+
+    Convert the markdown schema into the tigergraph__create_graph tool parameters:
+    - graph_name: from the schema
+    - vertex_types: list of {{name, primary_id, primary_id_type, attributes: [{{name, type}}]}}
+    - edge_types: list of {{name, from_vertex, to_vertex, directed, attributes: [{{name, type}}]}}
+
+    Call the tool and report the result. If it fails, analyze the error and retry.
+  expected_output: >
+    A success or failure message with details.
+  agent: create_schema_agent

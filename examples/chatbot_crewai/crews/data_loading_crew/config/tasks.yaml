@@ -1,0 +1,66 @@
+draft_loading_task:
+  description: >
+    Design a loading job configuration for the user's data files.
+
+    User command: {command}
+    Data preview: {data_preview}
+    Conversation context: {conversation_history}
+
+    Instructions:
+    1. First, use the tigergraph__get_graph_schema tool to understand the graph structure.
+    2. Map each data file's columns to vertex attributes and edge endpoints.
+    3. Present the config in this markdown format (NOT JSON):
+
+    ### Loading Job: <job_name>
+    **Graph:** <graph_name>
+
+    #### File: <file_path>
+    **Alias:** <alias>
+    **Format:** CSV, separator=`,`, header=true
+
+    **Node mappings:**
+    - **<VertexType>**: <column> -> <attribute>, ...
+
+    **Edge mappings:**
+    - **<EdgeType>**: source=<column>, target=<column>
+      - <column> -> <attribute>
+
+  expected_output: >
+    A loading job configuration in the markdown format above.
+  agent: draft_loading_agent
+
+edit_loading_task:
+  description: >
+    The user wants to modify this loading job draft:
+
+    {current_loading_job_draft}
+
+    User feedback: {user_feedback}
+
+    Apply the changes and output the updated config in the same markdown format.
+  expected_output: >
+    The updated loading job configuration in markdown format.
+  agent: edit_loading_agent
+
+run_loading_task:
+  description: >
+    Run the loading job based on this confirmed config:
+
+    {current_loading_job_draft}
+
+    Context: {conversation_history}
+
+    Convert the markdown config into tigergraph__create_loading_job parameters:
+    - job_name, graph_name
+    - files: list of file configs with file_alias, file_path, separator, header,
+      node_mappings (vertex_type, attribute_mappings), edge_mappings (edge_type,
+      source_column, target_column, attribute_mappings)
+    - run_job: true
+    - drop_after_run: false
+
+    For S3 files, use the format $<data_source_name>:<s3_path> as the file_path.
+
+    Call the tool and report the result.
+  expected_output: >
+    A success or failure message with loading details.
+  agent: run_loading_agent

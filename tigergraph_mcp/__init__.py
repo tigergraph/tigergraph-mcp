@@ -15,9 +15,10 @@ from importlib.metadata import version as _pkg_version, PackageNotFoundError
 
 from .server import serve, MCPServer
 from .connection_manager import get_connection, ConnectionManager
+from .tool_names import TigerGraphToolName
 
 try:
-    __version__ = _pkg_version("tigergraph-mcp")
+    __version__ = _pkg_version("pyTigerGraph-mcp")
 except PackageNotFoundError:
     __version__ = "1.0.0"
 
@@ -28,5 +29,6 @@ __all__ = [
     "MCPServer",
     "get_connection",
     "ConnectionManager",
+    "TigerGraphToolName",
 ]
 
