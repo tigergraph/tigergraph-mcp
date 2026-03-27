@@ -1,0 +1,45 @@
+{% set python_min = "3.10" %}
+
+package:
+  name: tigergraph-mcp
+  version: "1.0.0"
+
+source:
+  url: https://pypi.org/packages/source/p/pytigergraph-mcp/pytigergraph_mcp-1.0.0.tar.gz
+  sha256: 5e1fcc733bca07a4cb67fc0a2e1afd95372dfc4f974acae5f0c9c8bc6610f4de
+
+build:
+  number: 0
+  noarch: python
+  script: {{ PYTHON }} -m pip install . --no-deps -vv
+
+requirements:
+  host:
+    - python {{ python_min }}
+    - pip
+    - setuptools
+    - wheel
+  run:
+    - python >={{ python_min }}
+    - pytigergraph >=2.0.1
+    - mcp >=1.0.0
+    - pydantic >=2.0.0
+    - click
+    - python-dotenv >=1.0.0
+
+test:
+  imports:
+    - tigergraph_mcp
+  requires:
+    - python {{ python_min }}
+
+about:
+  home: https://github.com/tigergraph/tigergraph-mcp
+  license: Apache-2.0
+  license_family: Apache
+  license_file: LICENSE
+  summary: Model Context Protocol (MCP) server for TigerGraph
+
+extra:
+  recipe-maintainers:
+    - chengbiao-jin

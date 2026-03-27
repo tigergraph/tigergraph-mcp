@@ -30,6 +30,10 @@ from .tools import (
     # Schema operations (graph level)
     get_graph_schema,
     show_graph_details,
+    # Schema modification
+    update_schema,
+    # Validation tools
+    validate_schema_names,
     # Node tools
     add_node,
     add_nodes,
@@ -142,6 +146,10 @@ class MCPServer:
                         return await get_graph_schema(**arguments)
                     case TigerGraphToolName.SHOW_GRAPH_DETAILS:
                         return await show_graph_details(**arguments)
+                    case TigerGraphToolName.UPDATE_SCHEMA:
+                        return await update_schema(**arguments)
+                    case TigerGraphToolName.VALIDATE_SCHEMA_NAMES:
+                        return await validate_schema_names(**arguments)
                     # Node operations
                     case TigerGraphToolName.ADD_NODE:
                         return await add_node(**arguments)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyTigerGraph-mcp"
-version = "1.0.0"
+version = "1.0.1"
 description = "Model Context Protocol (MCP) server for TigerGraph"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "pyTigerGraph>=2.0.1",
+    "pyTigerGraph>=2.0.2",
     "mcp>=1.0.0",
     "pydantic>=2.0.0",
     "click",

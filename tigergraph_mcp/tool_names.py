@@ -25,6 +25,8 @@ class TigerGraphToolName(str, Enum):
     # Schema Operations (Graph level - operates on schema within a specific graph)
     GET_GRAPH_SCHEMA = "tigergraph__get_graph_schema"
     SHOW_GRAPH_DETAILS = "tigergraph__show_graph_details"
+    UPDATE_SCHEMA = "tigergraph__update_schema"
+    VALIDATE_SCHEMA_NAMES = "tigergraph__validate_schema_names"
 
     # Node Operations
     ADD_NODE = "tigergraph__add_node"

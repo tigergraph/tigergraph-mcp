@@ -493,6 +493,560 @@ TOOL_METADATA: Dict[str, ToolMetadata] = {
         keywords=["count", "statistics", "size", "edge", "relationship", "total"],
         examples=[]
     ),
+
+    # New tools (1.1.0)
+
+    "tigergraph__update_schema": ToolMetadata(
+        category=ToolCategory.SCHEMA,
+        prerequisites=["tigergraph__get_graph_schema"],
+        related_tools=["tigergraph__create_graph", "tigergraph__get_graph_schema", "tigergraph__validate_schema_names"],
+        common_next_steps=["tigergraph__get_graph_schema", "tigergraph__show_graph_details"],
+        use_cases=[
+            "Adding new vertex or edge types to an existing graph",
+            "Dropping vertex or edge types no longer needed",
+            "Adding or removing attributes on existing vertex types",
+            "Incremental schema evolution without recreating the graph"
+        ],
+        complexity="intermediate",
+        keywords=["schema", "alter", "modify", "update", "add", "drop", "attribute", "vertex", "edge"],
+        examples=[
+            {
+                "description": "Add a new vertex type",
+                "parameters": {
+                    "graph_name": "MyGraph",
+                    "add_vertex_types": [{"name": "Product", "attributes": [{"name": "price", "type": "FLOAT"}]}]
+                }
+            },
+            {
+                "description": "Add an attribute to an existing vertex type",
+                "parameters": {
+                    "graph_name": "MyGraph",
+                    "add_vertex_attributes": {"Person": [{"name": "score", "type": "FLOAT"}]}
+                }
+            }
+        ]
+    ),
+
+    "tigergraph__validate_schema_names": ToolMetadata(
+        category=ToolCategory.SCHEMA,
+        prerequisites=[],
+        related_tools=["tigergraph__create_graph", "tigergraph__update_schema"],
+        common_next_steps=["tigergraph__create_graph"],
+        use_cases=[
+            "Pre-validating schema names before graph creation",
+            "Checking for GSQL reserved keyword conflicts",
+            "Validating naming conventions in user-supplied schemas"
+        ],
+        complexity="basic",
+        keywords=["validate", "check", "reserved", "keyword", "name", "schema", "conflict"],
+        examples=[
+            {
+                "description": "Validate vertex names",
+                "parameters": {
+                    "vertex_types": [{"name": "SELECT", "attributes": [{"name": "count", "type": "INT"}]}]
+                }
+            }
+        ]
+    ),
+
+    # Global schema
+    "tigergraph__get_global_schema": ToolMetadata(
+        category=ToolCategory.SCHEMA,
+        prerequisites=[],
+        related_tools=["tigergraph__list_graphs", "tigergraph__show_graph_details"],
+        common_next_steps=["tigergraph__show_graph_details"],
+        use_cases=[
+            "Seeing all graphs and global types at once",
+            "Database-level schema exploration via raw GSQL LS output"
+        ],
+        complexity="basic",
+        keywords=["global", "schema", "ls", "all", "database"],
+        examples=[{"description": "Get global schema", "parameters": {}}]
+    ),
+
+    # Graph operations
+    "tigergraph__drop_graph": ToolMetadata(
+        category=ToolCategory.SCHEMA,
+        prerequisites=["tigergraph__list_graphs"],
+        related_tools=["tigergraph__create_graph", "tigergraph__clear_graph_data"],
+        common_next_steps=["tigergraph__list_graphs"],
+        use_cases=["Removing a graph permanently", "Cleaning up test graphs"],
+        complexity="basic",
+        keywords=["drop", "delete", "remove", "graph", "destroy"],
+        examples=[{"description": "Drop a graph", "parameters": {"graph_name": "TestGraph"}}]
+    ),
+
+    "tigergraph__clear_graph_data": ToolMetadata(
+        category=ToolCategory.DATA,
+        prerequisites=["tigergraph__list_graphs"],
+        related_tools=["tigergraph__drop_graph", "tigergraph__get_vertex_count"],
+        common_next_steps=["tigergraph__get_vertex_count"],
+        use_cases=["Resetting data while keeping schema", "Clearing test data"],
+        complexity="basic",
+        keywords=["clear", "reset", "empty", "data", "keep", "schema"],
+        examples=[{"description": "Clear all data", "parameters": {"graph_name": "MyGraph", "confirm": True}}]
+    ),
+
+    # Node operations (missing)
+    "tigergraph__delete_node": ToolMetadata(
+        category=ToolCategory.DATA,
+        prerequisites=[],
+        related_tools=["tigergraph__delete_nodes", "tigergraph__get_node"],
+        common_next_steps=["tigergraph__get_vertex_count"],
+        use_cases=["Deleting a single vertex by ID", "Removing specific entities"],
+        complexity="basic",
+        keywords=["delete", "remove", "node", "vertex", "single"],
+        examples=[{"description": "Delete a person node", "parameters": {"vertex_type": "Person", "vertex_id": "user123"}}]
+    ),
+
+    "tigergraph__delete_nodes": ToolMetadata(
+        category=ToolCategory.DATA,
+        prerequisites=[],
+        related_tools=["tigergraph__delete_node", "tigergraph__clear_graph_data"],
+        common_next_steps=["tigergraph__get_vertex_count"],
+        use_cases=["Batch deleting vertices", "Removing filtered vertex sets"],
+        complexity="basic",
+        keywords=["delete", "remove", "batch", "multiple", "nodes", "vertices"],
+        examples=[]
+    ),
+
+    "tigergraph__has_node": ToolMetadata(
+        category=ToolCategory.DATA,
+        prerequisites=[],
+        related_tools=["tigergraph__get_node"],
+        common_next_steps=["tigergraph__get_node"],
+        use_cases=["Checking if a vertex exists before operations", "Existence validation"],
+        complexity="basic",
+        keywords=["exists", "check", "has", "node", "vertex"],
+        examples=[{"description": "Check if user exists", "parameters": {"vertex_type": "Person", "vertex_id": "user123"}}]
+    ),
+
+    "tigergraph__get_node_edges": ToolMetadata(
+        category=ToolCategory.DATA,
+        prerequisites=[],
+        related_tools=["tigergraph__get_neighbors", "tigergraph__get_edges"],
+        common_next_steps=["tigergraph__get_neighbors"],
+        use_cases=["Finding all edges connected to a vertex", "Exploring local graph structure"],
+        complexity="basic",
+        keywords=["edges", "connected", "node", "adjacent", "relationships"],
+        examples=[{"description": "Get edges of a person", "parameters": {"vertex_type": "Person", "vertex_id": "user123"}}]
+    ),
+
+    # Edge operations (missing)
+    "tigergraph__get_edge": ToolMetadata(
+        category=ToolCategory.DATA,
+        prerequisites=[],
+        related_tools=["tigergraph__get_edges", "tigergraph__has_edge"],
+        common_next_steps=[],
+        use_cases=["Retrieving a specific edge", "Checking edge attributes"],
+        complexity="basic",
+        keywords=["get", "retrieve", "edge", "relationship", "single"],
+        examples=[]
+    ),
+
+    "tigergraph__get_edges": ToolMetadata(
+        category=ToolCategory.DATA,
+        prerequisites=[],
+        related_tools=["tigergraph__get_edge", "tigergraph__get_edge_count"],
+        common_next_steps=[],
+        use_cases=["Retrieving multiple edges", "Exploring relationships"],
+        complexity="basic",
+        keywords=["get", "retrieve", "list", "edges", "relationships", "multiple"],
+        examples=[]
+    ),
+
+    "tigergraph__delete_edge": ToolMetadata(
+        category=ToolCategory.DATA,
+        prerequisites=[],
+        related_tools=["tigergraph__delete_edges"],
+        common_next_steps=["tigergraph__get_edge_count"],
+        use_cases=["Removing a single relationship"],
+        complexity="basic",
+        keywords=["delete", "remove", "edge", "relationship"],
+        examples=[]
+    ),
+
+    "tigergraph__delete_edges": ToolMetadata(
+        category=ToolCategory.DATA,
+        prerequisites=[],
+        related_tools=["tigergraph__delete_edge"],
+        common_next_steps=["tigergraph__get_edge_count"],
+        use_cases=["Batch deleting edges"],
+        complexity="basic",
+        keywords=["delete", "remove", "batch", "edges", "relationships"],
+        examples=[]
+    ),
+
+    "tigergraph__has_edge": ToolMetadata(
+        category=ToolCategory.DATA,
+        prerequisites=[],
+        related_tools=["tigergraph__get_edge"],
+        common_next_steps=["tigergraph__get_edge"],
+        use_cases=["Checking if a relationship exists"],
+        complexity="basic",
+        keywords=["exists", "check", "has", "edge", "relationship"],
+        examples=[]
+    ),
+
+    # Query operations (missing)
+    "tigergraph__run_installed_query": ToolMetadata(
+        category=ToolCategory.QUERY,
+        prerequisites=["tigergraph__install_query"],
+        related_tools=["tigergraph__run_query", "tigergraph__install_query"],
+        common_next_steps=[],
+        use_cases=["Running a pre-installed query with parameters", "Production query execution"],
+        complexity="basic",
+        keywords=["run", "execute", "installed", "query", "parameters"],
+        examples=[{"description": "Run an installed query", "parameters": {"graph_name": "MyGraph", "query_name": "myQuery", "params": {"p1": "value"}}}]
+    ),
+
+    "tigergraph__install_query": ToolMetadata(
+        category=ToolCategory.QUERY,
+        prerequisites=["tigergraph__show_graph_details"],
+        related_tools=["tigergraph__run_installed_query", "tigergraph__drop_query"],
+        common_next_steps=["tigergraph__run_installed_query"],
+        use_cases=["Installing a GSQL query for production use", "Compiling queries for better performance"],
+        complexity="advanced",
+        keywords=["install", "compile", "query", "gsql", "create"],
+        examples=[]
+    ),
+
+    "tigergraph__drop_query": ToolMetadata(
+        category=ToolCategory.QUERY,
+        prerequisites=[],
+        related_tools=["tigergraph__install_query", "tigergraph__show_query"],
+        common_next_steps=["tigergraph__show_graph_details"],
+        use_cases=["Removing an installed query"],
+        complexity="basic",
+        keywords=["drop", "delete", "remove", "query"],
+        examples=[]
+    ),
+
+    "tigergraph__show_query": ToolMetadata(
+        category=ToolCategory.QUERY,
+        prerequisites=[],
+        related_tools=["tigergraph__get_query_metadata", "tigergraph__is_query_installed"],
+        common_next_steps=["tigergraph__run_installed_query"],
+        use_cases=["Viewing query source code", "Inspecting query definitions"],
+        complexity="basic",
+        keywords=["show", "view", "query", "source", "code"],
+        examples=[]
+    ),
+
+    "tigergraph__get_query_metadata": ToolMetadata(
+        category=ToolCategory.QUERY,
+        prerequisites=[],
+        related_tools=["tigergraph__show_query", "tigergraph__is_query_installed"],
+        common_next_steps=["tigergraph__run_installed_query"],
+        use_cases=["Getting query parameter types and signatures", "Query discovery"],
+        complexity="basic",
+        keywords=["metadata", "signature", "parameters", "query", "info"],
+        examples=[]
+    ),
+
+    "tigergraph__is_query_installed": ToolMetadata(
+        category=ToolCategory.QUERY,
+        prerequisites=[],
+        related_tools=["tigergraph__install_query", "tigergraph__show_query"],
+        common_next_steps=["tigergraph__install_query", "tigergraph__run_installed_query"],
+        use_cases=["Checking if a query is ready to run"],
+        complexity="basic",
+        keywords=["check", "installed", "query", "exists", "ready"],
+        examples=[]
+    ),
+
+    # GSQL operations
+    "tigergraph__gsql": ToolMetadata(
+        category=ToolCategory.QUERY,
+        prerequisites=[],
+        related_tools=["tigergraph__run_query"],
+        common_next_steps=[],
+        use_cases=["Running arbitrary GSQL commands", "Schema DDL via raw GSQL", "Administrative commands"],
+        complexity="advanced",
+        keywords=["gsql", "command", "raw", "ddl", "admin"],
+        examples=[]
+    ),
+
+    "tigergraph__generate_gsql": ToolMetadata(
+        category=ToolCategory.QUERY,
+        prerequisites=["tigergraph__show_graph_details"],
+        related_tools=["tigergraph__gsql", "tigergraph__generate_cypher"],
+        common_next_steps=["tigergraph__install_query"],
+        use_cases=["AI-assisted GSQL query generation from natural language"],
+        complexity="advanced",
+        keywords=["generate", "ai", "gsql", "natural", "language"],
+        examples=[]
+    ),
+
+    "tigergraph__generate_cypher": ToolMetadata(
+        category=ToolCategory.QUERY,
+        prerequisites=["tigergraph__show_graph_details"],
+        related_tools=["tigergraph__generate_gsql", "tigergraph__run_query"],
+        common_next_steps=["tigergraph__run_query"],
+        use_cases=["AI-assisted openCypher query generation"],
+        complexity="advanced",
+        keywords=["generate", "ai", "cypher", "opencypher", "natural", "language"],
+        examples=[]
+    ),
+
+    # Statistics (missing)
+    "tigergraph__get_node_degree": ToolMetadata(
+        category=ToolCategory.UTILITY,
+        prerequisites=[],
+        related_tools=["tigergraph__get_vertex_count", "tigergraph__get_edge_count"],
+        common_next_steps=[],
+        use_cases=["Finding connectivity of a specific vertex", "Identifying hub nodes"],
+        complexity="basic",
+        keywords=["degree", "connectivity", "node", "count", "edges"],
+        examples=[]
+    ),
+
+    # Vector operations (missing)
+    "tigergraph__drop_vector_attribute": ToolMetadata(
+        category=ToolCategory.VECTOR,
+        prerequisites=[],
+        related_tools=["tigergraph__add_vector_attribute", "tigergraph__list_vector_attributes"],
+        common_next_steps=["tigergraph__list_vector_attributes"],
+        use_cases=["Removing vector attributes from vertex types"],
+        complexity="basic",
+        keywords=["vector", "drop", "remove", "attribute", "embedding"],
+        examples=[]
+    ),
+
+    "tigergraph__list_vector_attributes": ToolMetadata(
+        category=ToolCategory.VECTOR,
+        prerequisites=[],
+        related_tools=["tigergraph__add_vector_attribute", "tigergraph__get_vector_index_status"],
+        common_next_steps=["tigergraph__upsert_vectors"],
+        use_cases=["Listing all vector attributes in a graph"],
+        complexity="basic",
+        keywords=["vector", "list", "attributes", "embedding"],
+        examples=[]
+    ),
+
+    "tigergraph__get_vector_index_status": ToolMetadata(
+        category=ToolCategory.VECTOR,
+        prerequisites=["tigergraph__add_vector_attribute"],
+        related_tools=["tigergraph__add_vector_attribute", "tigergraph__upsert_vectors"],
+        common_next_steps=["tigergraph__upsert_vectors", "tigergraph__search_top_k_similarity"],
+        use_cases=["Checking if vector index is ready for queries"],
+        complexity="basic",
+        keywords=["vector", "index", "status", "ready", "online"],
+        examples=[]
+    ),
+
+    "tigergraph__fetch_vector": ToolMetadata(
+        category=ToolCategory.VECTOR,
+        prerequisites=["tigergraph__upsert_vectors"],
+        related_tools=["tigergraph__search_top_k_similarity", "tigergraph__upsert_vectors"],
+        common_next_steps=[],
+        use_cases=["Retrieving stored vector embeddings for a vertex"],
+        complexity="basic",
+        keywords=["vector", "fetch", "retrieve", "embedding", "get"],
+        examples=[]
+    ),
+
+    "tigergraph__load_vectors_from_csv": ToolMetadata(
+        category=ToolCategory.VECTOR,
+        prerequisites=["tigergraph__add_vector_attribute"],
+        related_tools=["tigergraph__load_vectors_from_json", "tigergraph__upsert_vectors"],
+        common_next_steps=["tigergraph__get_vector_index_status"],
+        use_cases=["Bulk loading vectors from CSV files"],
+        complexity="intermediate",
+        keywords=["vector", "load", "csv", "bulk", "import"],
+        examples=[]
+    ),
+
+    "tigergraph__load_vectors_from_json": ToolMetadata(
+        category=ToolCategory.VECTOR,
+        prerequisites=["tigergraph__add_vector_attribute"],
+        related_tools=["tigergraph__load_vectors_from_csv", "tigergraph__upsert_vectors"],
+        common_next_steps=["tigergraph__get_vector_index_status"],
+        use_cases=["Bulk loading vectors from JSON files"],
+        complexity="intermediate",
+        keywords=["vector", "load", "json", "bulk", "import"],
+        examples=[]
+    ),
+
+    # Loading operations (missing)
+    "tigergraph__run_loading_job_with_data": ToolMetadata(
+        category=ToolCategory.LOADING,
+        prerequisites=["tigergraph__create_loading_job"],
+        related_tools=["tigergraph__run_loading_job_with_file", "tigergraph__get_loading_job_status"],
+        common_next_steps=["tigergraph__get_loading_job_status", "tigergraph__get_vertex_count"],
+        use_cases=["Loading inline data into the graph", "Small batch data ingestion"],
+        complexity="intermediate",
+        keywords=["loading", "job", "run", "data", "inline", "import"],
+        examples=[]
+    ),
+
+    "tigergraph__get_loading_jobs": ToolMetadata(
+        category=ToolCategory.LOADING,
+        prerequisites=[],
+        related_tools=["tigergraph__create_loading_job", "tigergraph__drop_loading_job"],
+        common_next_steps=["tigergraph__run_loading_job_with_file"],
+        use_cases=["Listing available loading jobs", "Discovering existing data pipelines"],
+        complexity="basic",
+        keywords=["loading", "jobs", "list", "available"],
+        examples=[]
+    ),
+
+    "tigergraph__get_loading_job_status": ToolMetadata(
+        category=ToolCategory.LOADING,
+        prerequisites=["tigergraph__run_loading_job_with_file"],
+        related_tools=["tigergraph__get_loading_jobs"],
+        common_next_steps=["tigergraph__get_vertex_count"],
+        use_cases=["Checking progress of a running loading job", "Monitoring data ingestion"],
+        complexity="basic",
+        keywords=["loading", "status", "progress", "monitor"],
+        examples=[]
+    ),
+
+    "tigergraph__drop_loading_job": ToolMetadata(
+        category=ToolCategory.LOADING,
+        prerequisites=[],
+        related_tools=["tigergraph__create_loading_job", "tigergraph__get_loading_jobs"],
+        common_next_steps=["tigergraph__get_loading_jobs"],
+        use_cases=["Removing a loading job definition"],
+        complexity="basic",
+        keywords=["loading", "drop", "delete", "remove", "job"],
+        examples=[]
+    ),
+
+    # Data source operations
+    "tigergraph__create_data_source": ToolMetadata(
+        category=ToolCategory.LOADING,
+        prerequisites=[],
+        related_tools=["tigergraph__get_data_source", "tigergraph__update_data_source"],
+        common_next_steps=["tigergraph__create_loading_job"],
+        use_cases=["Configuring an S3, Kafka, or other external data source"],
+        complexity="intermediate",
+        keywords=["data", "source", "create", "s3", "kafka", "configure"],
+        examples=[]
+    ),
+
+    "tigergraph__update_data_source": ToolMetadata(
+        category=ToolCategory.LOADING,
+        prerequisites=["tigergraph__create_data_source"],
+        related_tools=["tigergraph__get_data_source"],
+        common_next_steps=[],
+        use_cases=["Updating data source credentials or configuration"],
+        complexity="intermediate",
+        keywords=["data", "source", "update", "modify", "config"],
+        examples=[]
+    ),
+
+    "tigergraph__get_data_source": ToolMetadata(
+        category=ToolCategory.LOADING,
+        prerequisites=[],
+        related_tools=["tigergraph__get_all_data_sources"],
+        common_next_steps=[],
+        use_cases=["Inspecting a data source configuration"],
+        complexity="basic",
+        keywords=["data", "source", "get", "inspect", "view"],
+        examples=[]
+    ),
+
+    "tigergraph__drop_data_source": ToolMetadata(
+        category=ToolCategory.LOADING,
+        prerequisites=[],
+        related_tools=["tigergraph__get_all_data_sources"],
+        common_next_steps=["tigergraph__get_all_data_sources"],
+        use_cases=["Removing a data source"],
+        complexity="basic",
+        keywords=["data", "source", "drop", "delete", "remove"],
+        examples=[]
+    ),
+
+    "tigergraph__get_all_data_sources": ToolMetadata(
+        category=ToolCategory.LOADING,
+        prerequisites=[],
+        related_tools=["tigergraph__create_data_source"],
+        common_next_steps=[],
+        use_cases=["Listing all configured data sources"],
+        complexity="basic",
+        keywords=["data", "sources", "list", "all"],
+        examples=[]
+    ),
+
+    "tigergraph__drop_all_data_sources": ToolMetadata(
+        category=ToolCategory.LOADING,
+        prerequisites=[],
+        related_tools=["tigergraph__get_all_data_sources"],
+        common_next_steps=[],
+        use_cases=["Removing all data sources"],
+        complexity="basic",
+        keywords=["data", "sources", "drop", "all", "delete"],
+        examples=[]
+    ),
+
+    "tigergraph__preview_sample_data": ToolMetadata(
+        category=ToolCategory.LOADING,
+        prerequisites=["tigergraph__create_data_source"],
+        related_tools=["tigergraph__create_loading_job"],
+        common_next_steps=["tigergraph__create_loading_job"],
+        use_cases=["Previewing first N rows of an S3 data file", "Data exploration before loading"],
+        complexity="basic",
+        keywords=["preview", "sample", "data", "s3", "explore", "inspect"],
+        examples=[]
+    ),
+
+    # Connection operations
+    "tigergraph__list_connections": ToolMetadata(
+        category=ToolCategory.UTILITY,
+        prerequisites=[],
+        related_tools=["tigergraph__show_connection"],
+        common_next_steps=["tigergraph__show_connection", "tigergraph__list_graphs"],
+        use_cases=["Discovering available connection profiles"],
+        complexity="basic",
+        keywords=["connections", "profiles", "list", "available"],
+        examples=[{"description": "List profiles", "parameters": {}}]
+    ),
+
+    "tigergraph__show_connection": ToolMetadata(
+        category=ToolCategory.UTILITY,
+        prerequisites=[],
+        related_tools=["tigergraph__list_connections"],
+        common_next_steps=["tigergraph__list_graphs"],
+        use_cases=["Viewing connection details for a profile"],
+        complexity="basic",
+        keywords=["connection", "profile", "show", "details", "info"],
+        examples=[]
+    ),
+
+    # Discovery operations
+    "tigergraph__discover_tools": ToolMetadata(
+        category=ToolCategory.DISCOVERY,
+        prerequisites=[],
+        related_tools=["tigergraph__get_tool_info", "tigergraph__get_workflow"],
+        common_next_steps=["tigergraph__get_tool_info"],
+        use_cases=["Finding relevant tools by keyword", "Exploring available capabilities"],
+        complexity="basic",
+        keywords=["discover", "find", "search", "tools", "capabilities"],
+        examples=[]
+    ),
+
+    "tigergraph__get_workflow": ToolMetadata(
+        category=ToolCategory.DISCOVERY,
+        prerequisites=[],
+        related_tools=["tigergraph__discover_tools", "tigergraph__get_tool_info"],
+        common_next_steps=[],
+        use_cases=["Getting step-by-step guidance for common workflows"],
+        complexity="basic",
+        keywords=["workflow", "guide", "steps", "how", "tutorial"],
+        examples=[]
+    ),
+
+    "tigergraph__get_tool_info": ToolMetadata(
+        category=ToolCategory.DISCOVERY,
+        prerequisites=[],
+        related_tools=["tigergraph__discover_tools"],
+        common_next_steps=[],
+        use_cases=["Getting detailed information about a specific tool"],
+        complexity="basic",
+        keywords=["tool", "info", "details", "help", "usage"],
+        examples=[]
+    ),
 }
 
 

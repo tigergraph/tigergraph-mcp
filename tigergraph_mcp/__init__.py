@@ -20,7 +20,7 @@ from .tool_names import TigerGraphToolName
 try:
     __version__ = _pkg_version("pyTigerGraph-mcp")
 except PackageNotFoundError:
-    __version__ = "1.0.0"
+    __version__ = "1.0.1"
 
 __license__ = "Apache 2"
 
