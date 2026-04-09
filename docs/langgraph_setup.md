@@ -33,7 +33,7 @@ User CLI  →  Main Workflow  →  Intent Detection
 1. Install dependencies:
 
 ```bash
-pip install pyTigerGraph-mcp langchain-openai langgraph langchain-mcp-adapters python-dotenv
+pip install tigergraph-mcp langchain-openai langgraph langchain-mcp-adapters python-dotenv
 ```
 
 2. Create a `.env` file with your TigerGraph and LLM credentials:

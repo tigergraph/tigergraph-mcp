@@ -3,7 +3,7 @@
 ## 1. Install TigerGraph-MCP
 
 ```bash
-pip install pyTigerGraph-mcp
+pip install tigergraph-mcp
 ```
 
 ## 2. Create the `.env` File

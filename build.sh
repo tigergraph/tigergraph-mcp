@@ -2,7 +2,7 @@
 set -euo pipefail
 
 RECIPE_DIR="$(cd "$(dirname "$0")/tigergraph-mcp-recipe/recipe" && pwd)"
-PYPI_PACKAGE="pyTigerGraph-mcp"
+PYPI_PACKAGE="tigergraph-mcp"
 CONDA_FORGE_PKG="tigergraph-mcp"
 STAGED_RECIPES_DIR="${STAGED_RECIPES_DIR:-$(cd "$(dirname "$0")/../staged-recipes" 2>/dev/null && pwd || echo "")}"
 
@@ -76,6 +76,32 @@ if $DO_UPLOAD; then
 
     echo "---- Uploading to PyPI ----"
     python3 -m twine upload dist/*
+
+    # Update conda recipe meta.yaml with the new version and sha256
+    PKG_VERSION=$(grep "^version" pyproject.toml | awk -F'"' '{print $2}')
+    TARBALL_URL="https://pypi.org/packages/source/t/$PYPI_PACKAGE/${PYPI_PACKAGE//-/_}-$PKG_VERSION.tar.gz"
+
+    echo "---- Updating conda recipe to $PKG_VERSION ----"
+    # Wait briefly for PyPI to make the tarball available
+    for i in $(seq 1 30); do
+        HTTP_CODE=$(curl -sL -o /dev/null -w "%{http_code}" "$TARBALL_URL")
+        if [[ "$HTTP_CODE" == "200" ]]; then
+            break
+        fi
+        echo "  Waiting for PyPI tarball to become available... ($i/30)"
+        sleep 5
+    done
+    if [[ "$HTTP_CODE" != "200" ]]; then
+        echo "Warning: could not fetch tarball from PyPI. Update meta.yaml manually." >&2
+    else
+        NEW_SHA=$(curl -sL "$TARBALL_URL" | sha256sum | awk '{print $1}')
+        sed -i.bak "s|^  version:.*|  version: \"$PKG_VERSION\"|" "$RECIPE_DIR/meta.yaml"
+        sed -i.bak "s|^  url:.*|  url: $TARBALL_URL|" "$RECIPE_DIR/meta.yaml"
+        sed -i.bak "s|^  sha256:.*|  sha256: $NEW_SHA|" "$RECIPE_DIR/meta.yaml"
+        sed -i.bak "s|^  # sha256:.*|  sha256: $NEW_SHA|" "$RECIPE_DIR/meta.yaml"
+        rm -f "$RECIPE_DIR/meta.yaml.bak"
+        echo "  Updated meta.yaml: version=$PKG_VERSION sha256=$NEW_SHA"
+    fi
 fi
 
 # ── Conda ───────────────────────────────────────────────────────────────────

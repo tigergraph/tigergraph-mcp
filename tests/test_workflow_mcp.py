@@ -13,7 +13,7 @@ Workflow under test:
 
 Requirements:
   - A running TigerGraph instance (set TG_HOST, TG_USERNAME, TG_PASSWORD)
-  - pip install pyTigerGraph-mcp[dev]
+  - pip install tigergraph-mcp[dev]
 
 Run:
     TG_HOST=http://192.168.11.11 pytest tests/test_workflow_mcp.py -v -s

@@ -5,8 +5,8 @@ package:
   version: "1.0.0"
 
 source:
-  url: https://pypi.org/packages/source/p/pytigergraph-mcp/pytigergraph_mcp-1.0.0.tar.gz
-  sha256: 5e1fcc733bca07a4cb67fc0a2e1afd95372dfc4f974acae5f0c9c8bc6610f4de
+  url: https://pypi.org/packages/source/t/tigergraph-mcp/tigergraph_mcp-1.0.0.tar.gz
+  # sha256: UPDATE after publishing to PyPI
 
 build:
   number: 0
@@ -21,7 +21,7 @@ requirements:
     - wheel
   run:
     - python >={{ python_min }}
-    - pytigergraph >=2.0.1
+    - pytigergraph >=2.0.2
     - mcp >=1.0.0
     - pydantic >=2.0.0
     - click
