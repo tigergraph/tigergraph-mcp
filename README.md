@@ -1,4 +1,4 @@
-# pyTigerGraph-mcp
+# tigergraph-mcp
 
 Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact with TigerGraph through the MCP standard. All tools use pyTigerGraph's async APIs for optimal performance.
 
@@ -33,11 +33,11 @@ Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact w
 ## Installation
 
 ```bash
-pip install pyTigerGraph-mcp
+pip install tigergraph-mcp
 ```
 
 This installs:
-- `pyTigerGraph>=2.0.1` — the TigerGraph Python SDK
+- `pyTigerGraph>=2.0.2` — the TigerGraph Python SDK
 - `mcp>=1.0.0` — the MCP SDK
 - `pydantic>=2.0.0` — for data validation
 - `click` — for the CLI entry point
@@ -46,10 +46,9 @@ This installs:
 To enable the `tigergraph__generate_gsql` and `tigergraph__generate_cypher` tools (LLM-powered query generation):
 
 ```bash
-pip install "pyTigerGraph-mcp[llm]"
+pip install "tigergraph-mcp[llm]"
 ```
 
-> **Migrating from `pyTigerGraph[mcp]`?** `pip install pyTigerGraph[mcp]` now installs `pyTigerGraph-mcp` automatically. Update your imports from `pyTigerGraph.mcp` to `tigergraph_mcp`.
 
 ## Getting Started
 

@@ -16,6 +16,7 @@ from ..tool_names import TigerGraphToolName
 from ..connection_manager import get_connection
 from ..response_formatter import format_success, format_error, gsql_has_error
 from pyTigerGraph.common.exception import TigerGraphException
+from pyTigerGraph.common.gsql import _is_reserved_keyword
 
 
 # =============================================================================
@@ -66,6 +67,25 @@ class GetGraphSchemaToolInput(BaseModel):
     """Input schema for getting a specific graph's schema (raw JSON)."""
     profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
+
+
+class UpdateSchemaToolInput(BaseModel):
+    """Input schema for incremental schema changes (local or global)."""
+    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'.")
+    graph_name: Optional[str] = Field(None, description="Name of the graph to modify. If not provided, runs a global schema change.")
+    add_vertex_types: List[Dict[str, Any]] = Field(default_factory=list, description="Vertex type definitions to add (same format as create_graph).")
+    drop_vertex_types: List[str] = Field(default_factory=list, description="Names of vertex types to drop.")
+    add_vertex_attributes: Dict[str, List[Dict[str, Any]]] = Field(
+        default_factory=dict,
+        description='Map of vertex type name to list of attributes to add. E.g. {"Person": [{"name": "score", "type": "FLOAT"}]}',
+    )
+    drop_vertex_attributes: Dict[str, List[str]] = Field(
+        default_factory=dict,
+        description='Map of vertex type name to list of attribute names to drop. E.g. {"Person": ["old_attr"]}',
+    )
+    add_edge_types: List[Dict[str, Any]] = Field(default_factory=list, description="Edge type definitions to add (same format as create_graph).")
+    drop_edge_types: List[str] = Field(default_factory=list, description="Names of edge types to drop.")
+
 
 
 class ShowGraphDetailsToolInput(BaseModel):
@@ -666,6 +686,12 @@ async def drop_graph(profile: Optional[str] = None, graph_name: str = None) -> L
         result = await conn.dropGraph(graph_name)
         result_str = result.get("message", str(result))
 
+        if conn.graphname == graph_name:
+            from ..connection_manager import _get_env_for_profile
+            import os
+            effective_profile = profile or os.getenv("TG_PROFILE", "default")
+            conn.graphname = _get_env_for_profile(effective_profile, "GRAPHNAME", "")
+
         return format_success(
             operation="drop_graph",
             summary=f"Success: Graph '{graph_name}' dropped successfully",
@@ -922,4 +948,313 @@ async def show_graph_details(
         )
 
 
+# =============================================================================
+# Update Schema Tool
+# =============================================================================
+
+update_schema_tool = Tool(
+    name=TigerGraphToolName.UPDATE_SCHEMA,
+    description=(
+        "Apply incremental schema changes: add/drop vertex types, "
+        "edge types, or individual attributes. Supports both local (graph-scoped) "
+        "and global schema changes.\n\n"
+
+        "**Use When:**\n"
+        "  - Adding new vertex or edge types to an existing graph (local)\n"
+        "  - Creating global vertex/edge types shared across graphs (global)\n"
+        "  - Dropping vertex or edge types that are no longer needed\n"
+        "  - Adding or removing attributes on existing vertex types\n\n"
+
+        "**Local schema change (add a vertex type to a graph):**\n"
+        "```json\n"
+        "{\n"
+        '  "graph_name": "MyGraph",\n'
+        '  "add_vertex_types": [{"name": "Product", "attributes": [{"name": "price", "type": "FLOAT"}]}]\n'
+        "}\n"
+        "```\n\n"
+
+        "**Global schema change (omit graph_name):**\n"
+        "```json\n"
+        "{\n"
+        '  "add_vertex_types": [{"name": "SharedVertex", "attributes": [{"name": "val", "type": "INT"}]}]\n'
+        "}\n"
+        "```\n\n"
+
+        "**Tips:**\n"
+        "  - Drop edges referencing a vertex type before dropping the vertex type\n"
+        "  - Adding attributes with defaults avoids null values on existing data\n"
+        "  - Use 'get_graph_schema' to inspect the current schema first\n"
+        "  - Omit 'graph_name' to apply changes at the global level\n\n"
+
+        "**Related Tools:** create_graph, get_graph_schema, show_graph_details"
+    ),
+    inputSchema=UpdateSchemaToolInput.model_json_schema(),
+)
+
+
+async def update_schema(
+    profile: Optional[str] = None,
+    graph_name: str = None,
+    add_vertex_types: List[Dict[str, Any]] = None,
+    drop_vertex_types: List[str] = None,
+    add_vertex_attributes: Dict[str, List[Dict[str, Any]]] = None,
+    drop_vertex_attributes: Dict[str, List[str]] = None,
+    add_edge_types: List[Dict[str, Any]] = None,
+    drop_edge_types: List[str] = None,
+) -> List[TextContent]:
+    """Apply incremental schema changes (local or global)."""
+    try:
+        conn = get_connection(profile=profile, graph_name=graph_name)
+        stmts: list[str] = []
+        changes: list[str] = []
+        scope = f"graph '{graph_name}'" if graph_name else "global schema"
+
+        for vtype in (add_vertex_types or []):
+            _, stmt = _build_vertex_stmt(vtype, keyword="ADD")
+            if stmt:
+                stmts.append(stmt + ";")
+                changes.append(f"ADD VERTEX {vtype.get('name')}")
+
+        for etype in (add_edge_types or []):
+            _, stmt = _build_edge_stmt(etype, keyword="ADD")
+            if stmt:
+                stmts.append(stmt + ";")
+                changes.append(f"ADD EDGE {etype.get('name')}")
+
+        for vtype_name, attrs in (add_vertex_attributes or {}).items():
+            attr_parts = [_format_attr(a) for a in attrs]
+            stmt = f"ALTER VERTEX {vtype_name} ADD ATTRIBUTE ({', '.join(attr_parts)});"
+            stmts.append(stmt)
+            changes.append(f"ALTER VERTEX {vtype_name} ADD {len(attrs)} attribute(s)")
+
+        for vtype_name, attr_names in (drop_vertex_attributes or {}).items():
+            for attr_name in attr_names:
+                stmts.append(f"ALTER VERTEX {vtype_name} DROP ATTRIBUTE ({attr_name});")
+                changes.append(f"ALTER VERTEX {vtype_name} DROP {attr_name}")
+
+        for ename in (drop_edge_types or []):
+            stmts.append(f"DROP EDGE {ename};")
+            changes.append(f"DROP EDGE {ename}")
+
+        for vname in (drop_vertex_types or []):
+            stmts.append(f"DROP VERTEX {vname};")
+            changes.append(f"DROP VERTEX {vname}")
+
+        if not stmts:
+            return format_error(
+                operation="update_schema",
+                error=ValueError("No schema changes specified"),
+                context={"graph_name": graph_name or "(global)"},
+                suggestions=["Provide at least one of: add_vertex_types, drop_vertex_types, add_vertex_attributes, drop_vertex_attributes, add_edge_types, drop_edge_types"],
+            )
+
+        schema_ddl = "\n".join(stmts)
+        result = await conn.runSchemaChange(schema_ddl, graph_name)
+
+        suggestions = []
+        if graph_name:
+            suggestions.append(f"Verify: get_graph_schema(graph_name='{graph_name}')")
+            suggestions.append(f"Full listing: show_graph_details(graph_name='{graph_name}')")
+        else:
+            suggestions.append("Verify: get_global_schema()")
+
+        return format_success(
+            operation="update_schema",
+            summary=f"Success: Applied {len(changes)} schema change(s) to {scope}",
+            data={
+                "graph_name": graph_name,
+                "scope": "local" if graph_name else "global",
+                "changes_applied": changes,
+                "change_count": len(changes),
+                "result": str(result) if result else "OK",
+            },
+            suggestions=suggestions,
+            metadata={"operation_type": "DDL"},
+        )
+    except Exception as e:
+        return format_error(
+            operation="update_schema",
+            error=e,
+            context={"graph_name": graph_name or "(global)"},
+        )
+
+
+# =============================================================================
+# Schema Validation Tools
+# =============================================================================
+
+class ValidateSchemaNamesToolInput(BaseModel):
+    """Input schema for validating schema names against GSQL reserved keywords."""
+    vertex_types: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Vertex type definitions to validate (same format as create_graph).",
+    )
+    edge_types: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Edge type definitions to validate (same format as create_graph).",
+    )
+    graph_name: Optional[str] = Field(
+        None,
+        description="Graph name to validate.",
+    )
+
+
+validate_schema_names_tool = Tool(
+    name=TigerGraphToolName.VALIDATE_SCHEMA_NAMES,
+    description=(
+        "Validate vertex type names, edge type names, attribute names, and the graph name "
+        "against GSQL reserved keywords and naming conflict rules.\n\n"
+
+        "**Use When:**\n"
+        "  - Before calling 'create_graph' to catch naming problems early\n"
+        "  - Checking if user-supplied names conflict with GSQL keywords\n"
+        "  - Validating that vertex/edge type names don't collide with their attribute names\n\n"
+
+        "**Quick Start:**\n"
+        "```json\n"
+        "{\n"
+        '  "graph_name": "MyGraph",\n'
+        '  "vertex_types": [\n'
+        '    {"name": "SELECT", "attributes": [{"name": "count", "type": "INT"}]}\n'
+        "  ]\n"
+        "}\n"
+        "```\n"
+        "(Returns warnings for 'SELECT' and 'count' as reserved keywords)\n\n"
+
+        "**Related Tools:** create_graph, get_graph_schema"
+    ),
+    inputSchema=ValidateSchemaNamesToolInput.model_json_schema(),
+)
+
+
+async def validate_schema_names(
+    vertex_types: List[Dict[str, Any]] = None,
+    edge_types: List[Dict[str, Any]] = None,
+    graph_name: Optional[str] = None,
+    **kwargs,
+) -> List[TextContent]:
+    """Validate schema names against GSQL reserved keywords and naming rules."""
+    problems: List[Dict[str, str]] = []
+
+    if graph_name and _is_reserved_keyword(graph_name):
+        problems.append({
+            "type": "reserved_keyword",
+            "location": "graph_name",
+            "name": graph_name,
+            "message": f"Graph name '{graph_name}' is a GSQL reserved keyword",
+        })
+
+    all_type_names: set = set()
+
+    for vtype in (vertex_types or []):
+        vname = vtype.get("name", "")
+        if not vname:
+            continue
+
+        if _is_reserved_keyword(vname):
+            problems.append({
+                "type": "reserved_keyword",
+                "location": "vertex_type",
+                "name": vname,
+                "message": f"Vertex type name '{vname}' is a GSQL reserved keyword",
+            })
+
+        if vname.upper() in all_type_names:
+            problems.append({
+                "type": "duplicate_name",
+                "location": "vertex_type",
+                "name": vname,
+                "message": f"Duplicate type name '{vname}' (case-insensitive)",
+            })
+        all_type_names.add(vname.upper())
+
+        attr_names: set = set()
+        for attr in vtype.get("attributes", []):
+            aname = attr.get("name", "")
+            if not aname:
+                continue
+            if _is_reserved_keyword(aname):
+                problems.append({
+                    "type": "reserved_keyword",
+                    "location": f"vertex_type.{vname}.attribute",
+                    "name": aname,
+                    "message": f"Attribute '{aname}' on vertex '{vname}' is a GSQL reserved keyword",
+                })
+            if aname.upper() == vname.upper():
+                problems.append({
+                    "type": "name_conflict",
+                    "location": f"vertex_type.{vname}.attribute",
+                    "name": aname,
+                    "message": f"Attribute '{aname}' has the same name as its vertex type '{vname}'",
+                })
+            if aname.upper() in attr_names:
+                problems.append({
+                    "type": "duplicate_name",
+                    "location": f"vertex_type.{vname}.attribute",
+                    "name": aname,
+                    "message": f"Duplicate attribute name '{aname}' in vertex type '{vname}'",
+                })
+            attr_names.add(aname.upper())
+
+    for etype in (edge_types or []):
+        ename = etype.get("name", "")
+        if not ename:
+            continue
+
+        if _is_reserved_keyword(ename):
+            problems.append({
+                "type": "reserved_keyword",
+                "location": "edge_type",
+                "name": ename,
+                "message": f"Edge type name '{ename}' is a GSQL reserved keyword",
+            })
+
+        if ename.upper() in all_type_names:
+            problems.append({
+                "type": "duplicate_name",
+                "location": "edge_type",
+                "name": ename,
+                "message": f"Duplicate type name '{ename}' (case-insensitive) — conflicts with a vertex type",
+            })
+        all_type_names.add(ename.upper())
+
+        for attr in etype.get("attributes", []):
+            aname = attr.get("name", "")
+            if not aname:
+                continue
+            if _is_reserved_keyword(aname):
+                problems.append({
+                    "type": "reserved_keyword",
+                    "location": f"edge_type.{ename}.attribute",
+                    "name": aname,
+                    "message": f"Attribute '{aname}' on edge '{ename}' is a GSQL reserved keyword",
+                })
+
+    if problems:
+        return format_success(
+            operation="validate_schema_names",
+            summary=f"Found {len(problems)} naming problem(s)",
+            data={
+                "valid": False,
+                "problem_count": len(problems),
+                "problems": problems,
+            },
+            suggestions=[
+                "Rename the flagged identifiers before calling create_graph",
+                "Use get_graph_schema to inspect existing schemas for reference",
+            ],
+        )
+    else:
+        return format_success(
+            operation="validate_schema_names",
+            summary="All names are valid",
+            data={
+                "valid": True,
+                "problem_count": 0,
+                "problems": [],
+            },
+            suggestions=[
+                "Schema names look good — proceed with create_graph",
+            ],
+        )
 

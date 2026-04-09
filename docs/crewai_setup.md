@@ -33,7 +33,7 @@ Panel Web UI  →  ChatFlow (CrewAI Flow)
 1. Install dependencies:
 
 ```bash
-pip install pyTigerGraph-mcp crewai crewai-tools panel python-dotenv
+pip install tigergraph-mcp crewai crewai-tools panel python-dotenv
 ```
 
 2. Create a `.env` file with your TigerGraph and LLM credentials:

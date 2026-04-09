@@ -31,6 +31,12 @@ from .schema_tools import (
     show_graph_details_tool,
     get_graph_schema,
     show_graph_details,
+    # Schema modification
+    update_schema_tool,
+    update_schema,
+    # Schema validation
+    validate_schema_names_tool,
+    validate_schema_names,
 )
 from .node_tools import (
     add_node_tool,
@@ -185,6 +191,12 @@ __all__ = [
     "show_graph_details_tool",
     "get_graph_schema",
     "show_graph_details",
+    # Schema modification
+    "update_schema_tool",
+    "update_schema",
+    # Validation tools
+    "validate_schema_names_tool",
+    "validate_schema_names",
     # Node tools
     "add_node_tool",
     "add_nodes_tool",

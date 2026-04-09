@@ -25,6 +25,8 @@ from .schema_tools import (
     # Schema operations (graph level)
     get_graph_schema_tool,
     show_graph_details_tool,
+    update_schema_tool,
+    validate_schema_names_tool,
 )
 from .node_tools import (
     add_node_tool,
@@ -114,6 +116,9 @@ def get_all_tools() -> List[Tool]:
         # Schema operations (graph level)
         get_graph_schema_tool,
         show_graph_details_tool,
+        update_schema_tool,
+        # Validation tools
+        validate_schema_names_tool,
         # Node tools
         add_node_tool,
         add_nodes_tool,

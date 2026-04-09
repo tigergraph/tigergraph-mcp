@@ -69,7 +69,7 @@ async def get_vertex_count(
     try:
         conn = get_connection(profile=profile, graph_name=graph_name)
 
-        if vertex_type:
+        if vertex_type and vertex_type != "*":
             count = await conn.getVertexCount(vertex_type)
             
             return format_success(
@@ -137,7 +137,7 @@ async def get_edge_count(
     try:
         conn = get_connection(profile=profile, graph_name=graph_name)
 
-        if edge_type:
+        if edge_type and edge_type != "*":
             count = await conn.getEdgeCount(edge_type)
             
             return format_success(

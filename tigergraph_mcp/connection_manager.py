@@ -64,19 +64,42 @@ def _load_env_file(env_path: Optional[str] = None) -> None:
         logger.warning(f"Specified .env file not found: {env_path}")
 
 
+_ENV_ALIASES = {
+    "API_TOKEN": "TOKEN",
+    "GS_PORT": "GSQL_PORT",
+}
+
+
 def _get_env_for_profile(profile: str, key: str, default: str = "") -> str:
     """Resolve a config value for a profile.
 
     Default profile uses unprefixed ``TG_*`` vars.
     Named profiles use ``<PROFILE>_TG_*`` vars, falling back to
     the unprefixed ``TG_*`` var, then the built-in *default*.
+
+    Legacy env var aliases (``TG_TOKEN`` -> ``TG_API_TOKEN``,
+    ``TG_GSQL_PORT`` -> ``TG_GS_PORT``) are resolved automatically.
     """
     if profile == "default":
-        return os.getenv(f"TG_{key}", default)
-    return os.getenv(
-        f"{profile.upper()}_TG_{key}",
-        os.getenv(f"TG_{key}", default),
-    )
+        value = os.getenv(f"TG_{key}", "")
+        if not value:
+            alias = _ENV_ALIASES.get(key)
+            if alias:
+                value = os.getenv(f"TG_{alias}", "")
+        return value or default
+
+    value = os.getenv(f"{profile.upper()}_TG_{key}", "")
+    if not value:
+        alias = _ENV_ALIASES.get(key)
+        if alias:
+            value = os.getenv(f"{profile.upper()}_TG_{alias}", "")
+    if not value:
+        value = os.getenv(f"TG_{key}", "")
+    if not value:
+        alias = _ENV_ALIASES.get(key)
+        if alias:
+            value = os.getenv(f"TG_{alias}", "")
+    return value or default
 
 
 class ConnectionManager:
@@ -131,26 +154,6 @@ class ConnectionManager:
         cls._default_connection = conn
 
     @classmethod
-    async def close_all(cls) -> None:
-        """Close all pooled connections and release their HTTP sockets.
-
-        Call this at server/application shutdown to drain keep-alive connections
-        gracefully. Connections are removed from the pool after closing so that
-        subsequent calls to get_connection_for_profile() create fresh sessions.
-
-        Example:
-            ```python
-            # In an MCP server lifespan or FastAPI shutdown event:
-            await ConnectionManager.close_all()
-            ```
-        """
-        for conn in list(cls._connection_pool.values()):
-            await conn.aclose()
-        cls._connection_pool.clear()
-        cls._profiles.clear()
-        cls._default_connection = None
-
-    @classmethod
     def get_connection_for_profile(
         cls,
         profile: str = "default",
@@ -198,6 +201,9 @@ class ConnectionManager:
             certPath=cert_path,
         )
 
+        if not jwt_token and not api_token:
+            cls._auto_generate_token(conn, gsql_secret, profile)
+
         cls._connection_pool[cache_key] = conn
 
         if profile == "default":
@@ -205,6 +211,94 @@ class ConnectionManager:
 
         logger.info(f"Created connection for profile '{profile}' -> {host}")
         return conn
+
+    @classmethod
+    def _auto_generate_token(
+        cls,
+        conn: AsyncTigerGraphConnection,
+        gsql_secret: str,
+        profile: str,
+    ) -> None:
+        """Try to auto-generate an auth token when only username/password are provided.
+
+        Checks whether REST++ authentication is enabled by inspecting the
+        connection's ``restppAuthEnabled`` flag (set during ``__init__``
+        if pyTigerGraph was able to query ``/gsqlserver/gsql/authinfo``).
+
+        * If REST++ auth is **disabled**, Basic auth suffices — nothing to do.
+        * If REST++ auth is **enabled**, a token is required for RESTPP
+          endpoints.  The method resolves a secret (from ``TG_SECRET``, existing
+          secrets on the server, or by creating one) and then generates a token.
+
+        Version-specific behavior:
+        * TG 3.x: uses plaintext tokens via legacy ``/requesttoken``.
+        * TG 4.1.2+: uses JWT tokens via ``POST /gsql/v1/tokens``.
+        """
+        try:
+            restpp_auth = getattr(conn, "restppAuthEnabled", None)
+            if restpp_auth is False:
+                logger.debug(
+                    f"[{profile}] REST++ auth disabled — skipping token generation"
+                )
+                return
+            if restpp_auth is None:
+                logger.debug(
+                    f"[{profile}] Unable to determine REST++ auth status — "
+                    "attempting token generation as a precaution"
+                )
+
+            secret = gsql_secret
+            if not secret:
+                try:
+                    existing = conn.getSecrets()
+                    if isinstance(existing, dict) and existing:
+                        secret = next(iter(existing.values()))
+                        logger.debug(f"[{profile}] Reusing existing secret")
+                    elif isinstance(existing, list) and existing:
+                        first = existing[0]
+                        secret = first.get("value", first.get("secret", "")) if isinstance(first, dict) else str(first)
+                        logger.debug(f"[{profile}] Reusing existing secret")
+                except Exception:
+                    pass
+
+            if not secret:
+                try:
+                    result = conn.createSecret()
+                    if isinstance(result, dict):
+                        secret = result.get("value", result.get("secret", ""))
+                    elif isinstance(result, str):
+                        secret = result
+                    logger.info(f"[{profile}] Created new secret for token generation")
+                except Exception as e:
+                    logger.warning(
+                        f"[{profile}] Could not create secret: {e} — "
+                        "RESTPP calls may fail if REST++ auth is enabled"
+                    )
+                    return
+
+            if not secret:
+                logger.warning(f"[{profile}] No secret available for token generation")
+                return
+
+            try:
+                token_result = conn.getToken(secret)
+                if isinstance(token_result, tuple):
+                    token = token_result[0]
+                elif isinstance(token_result, dict):
+                    token = token_result.get("token", token_result.get("results", {}).get("token", ""))
+                else:
+                    token = str(token_result)
+
+                if token:
+                    conn.apiToken = token
+                    conn._refresh_auth_headers()
+                    logger.info(f"[{profile}] Auto-generated auth token successfully")
+                else:
+                    logger.warning(f"[{profile}] Token generation returned empty result")
+            except Exception as e:
+                logger.warning(f"[{profile}] Token generation failed: {e}")
+        except Exception as e:
+            logger.warning(f"[{profile}] Auto-token generation error: {e}")
 
     @classmethod
     def get_profile_info(cls, profile: str = "default") -> Dict[str, str]:

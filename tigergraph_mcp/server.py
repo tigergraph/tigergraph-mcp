@@ -14,6 +14,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from .tool_names import TigerGraphToolName
+from .response_formatter import format_error
 from pyTigerGraph.common.exception import TigerGraphException
 from .tools import (
     get_all_tools,
@@ -30,6 +31,10 @@ from .tools import (
     # Schema operations (graph level)
     get_graph_schema,
     show_graph_details,
+    # Schema modification
+    update_schema,
+    # Validation tools
+    validate_schema_names,
     # Node tools
     add_node,
     add_nodes,
@@ -142,6 +147,10 @@ class MCPServer:
                         return await get_graph_schema(**arguments)
                     case TigerGraphToolName.SHOW_GRAPH_DETAILS:
                         return await show_graph_details(**arguments)
+                    case TigerGraphToolName.UPDATE_SCHEMA:
+                        return await update_schema(**arguments)
+                    case TigerGraphToolName.VALIDATE_SCHEMA_NAMES:
+                        return await validate_schema_names(**arguments)
                     # Node operations
                     case TigerGraphToolName.ADD_NODE:
                         return await add_node(**arguments)
@@ -264,12 +273,18 @@ class MCPServer:
                         raise ValueError(f"Unknown tool: {name}")
             except TigerGraphException as e:
                 logger.exception("Error in tool execution")
-                error_msg = e.message if hasattr(e, 'message') else str(e)
-                error_code = f" (Code: {e.code})" if hasattr(e, 'code') and e.code else ""
-                return [TextContent(type="text", text=f"❌ TigerGraph Error{error_code} due to: {error_msg}")]
+                return format_error(
+                    operation=name,
+                    error=e,
+                    context={"arguments": arguments},
+                )
             except Exception as e:
                 logger.exception("Error in tool execution")
-                return [TextContent(type="text", text=f"❌ Error due to: {str(e)}")]
+                return format_error(
+                    operation=name,
+                    error=e,
+                    context={"arguments": arguments},
+                )
 
 
 async def serve() -> None:

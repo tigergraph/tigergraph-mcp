@@ -13,7 +13,7 @@ from MCP tools. It ensures responses are both machine-readable and human-friendl
 
 import json
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel
 from mcp.types import TextContent
 
@@ -40,7 +40,7 @@ class ToolResponse(BaseModel):
 
     def __init__(self, **data):
         if 'timestamp' not in data:
-            data['timestamp'] = datetime.utcnow().isoformat() + 'Z'
+            data['timestamp'] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
         super().__init__(**data)
 
 
@@ -102,13 +102,13 @@ def format_response(
     
     # Add suggestions
     if suggestions and len(suggestions) > 0:
-        text_parts.append("\n**💡 Suggestions:**")
+        text_parts.append("\n**Suggestions:**")
         for i, suggestion in enumerate(suggestions, 1):
             text_parts.append(f"{i}. {suggestion}")
     
     # Add error details
     if error:
-        text_parts.append(f"\n**❌ Error Details:**\n{error}")
+        text_parts.append(f"\n**Error Details:**\n{error}")
         if error_code:
             text_parts.append(f"\n**Error Code:** {error_code}")
     
@@ -242,10 +242,14 @@ def format_error(
     else:
         error_code = "OPERATION_ERROR"
     
+    short_error = error_str
+    if len(short_error) > 200:
+        short_error = short_error[:200] + "..."
+
     return format_response(
         success=False,
         operation=operation,
-        summary=f"❌ Failed to {operation.replace('_', ' ')}",
+        summary=f"Failed to {operation.replace('_', ' ')}: {short_error}",
         error=error_str,
         error_code=error_code,
         metadata=context,
@@ -301,7 +305,7 @@ def format_list_response(
     if summary_template:
         summary = summary_template.format(count=count, type=item_type)
     else:
-        summary = f"✅ Found {count} {item_type}"
+        summary = f"Found {count} {item_type}"
     
     return format_success(
         operation=operation,

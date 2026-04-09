@@ -44,6 +44,7 @@ class DropDataSourceToolInput(BaseModel):
     """Input schema for dropping a data source."""
     profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
     data_source_name: str = Field(..., description="Name of the data source to drop.")
+    graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
 
 
 class GetAllDataSourcesToolInput(BaseModel):
@@ -202,12 +203,13 @@ async def get_data_source(
 async def drop_data_source(
     data_source_name: str,
     profile: Optional[str] = None,
+    graph_name: Optional[str] = None,
 ) -> List[TextContent]:
     """Drop a data source."""
     from ..response_formatter import format_success, format_error
 
     try:
-        conn = get_connection(profile=profile)
+        conn = get_connection(profile=profile, graph_name=graph_name)
         result = await conn.dropDataSource(dsName=data_source_name)
         result_str = result.get("message", str(result))
 

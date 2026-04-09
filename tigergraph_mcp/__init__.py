@@ -18,7 +18,7 @@ from .connection_manager import get_connection, ConnectionManager
 from .tool_names import TigerGraphToolName
 
 try:
-    __version__ = _pkg_version("pyTigerGraph-mcp")
+    __version__ = _pkg_version("tigergraph-mcp")
 except PackageNotFoundError:
     __version__ = "1.0.0"
 
