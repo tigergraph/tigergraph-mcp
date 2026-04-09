@@ -686,6 +686,12 @@ async def drop_graph(profile: Optional[str] = None, graph_name: str = None) -> L
         result = await conn.dropGraph(graph_name)
         result_str = result.get("message", str(result))
 
+        if conn.graphname == graph_name:
+            from ..connection_manager import _get_env_for_profile
+            import os
+            effective_profile = profile or os.getenv("TG_PROFILE", "default")
+            conn.graphname = _get_env_for_profile(effective_profile, "GRAPHNAME", "")
+
         return format_success(
             operation="drop_graph",
             summary=f"Success: Graph '{graph_name}' dropped successfully",
