@@ -49,7 +49,7 @@ Click the **Start** button that appears above `"tigergraph-mcp-server":` to star
 
 ## 5. View Available Tools
 
-Click the Tools icon in the Chat view to see all TigerGraph-MCP tools. There are 50+ tools covering schema, data, queries, vectors, and more.
+Click the Tools icon in the Chat view to see all TigerGraph-MCP tools. There are 65 tools covering schema, data, queries, vectors, and more.
 
 ---
 

@@ -32,18 +32,26 @@ Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact w
 
 ## Installation
 
+Install with **pip**:
+
 ```bash
 pip install tigergraph-mcp
 ```
 
+Or with **conda** (from the `tigergraph` channel):
+
+```bash
+conda install -c tigergraph tigergraph-mcp
+```
+
 This installs:
-- `pyTigerGraph>=2.0.2` — the TigerGraph Python SDK
+- `pyTigerGraph>=2.0.4` — the TigerGraph Python SDK
 - `mcp>=1.0.0` — the MCP SDK
 - `pydantic>=2.0.0` — for data validation
 - `click` — for the CLI entry point
 - `python-dotenv>=1.0.0` — for loading `.env` files
 
-To enable the `tigergraph__generate_gsql` and `tigergraph__generate_cypher` tools (LLM-powered query generation):
+To enable the `tigergraph__generate_gsql` and `tigergraph__generate_cypher` tools (LLM-powered query generation), install the optional `[llm]` extras (pip only):
 
 ```bash
 pip install "tigergraph-mcp[llm]"
@@ -132,7 +140,9 @@ TG_GRAPHNAME=MyGraph
 TG_API_TOKEN=your_api_token_here
 ```
 
-When `TG_API_TOKEN` (or `TG_JWT_TOKEN`) is set, the server uses token-based authentication (`Authorization: Bearer <token>`) and ignores username/password. You can obtain a token via `pyTigerGraph`'s `getToken()` method or from the TigerGraph Admin Portal.
+When `TG_API_TOKEN` (or `TG_JWT_TOKEN`) is set, the server uses token-based authentication (`Authorization: Bearer <token>`) and ignores username/password. You can obtain a token via `pyTigerGraph`'s `getToken()` method or by directly calling TigerGraph's token generation endpoint.
+
+When only username/password are provided and the TigerGraph instance requires a token for RESTPP endpoints, pyTigerGraph auto-mints one on the first 401 response and transparently retries the request — no manual token setup needed.
 
 The server loads the `.env` file automatically. Environment variables take precedence over `.env` values.
 
@@ -196,6 +206,42 @@ TG_PROFILE=prod
 ```
 
 If `TG_PROFILE` is not set, the default profile is used.
+
+#### Switching profiles per call
+
+Every tool accepts an optional `profile` argument, so an agent can route individual calls to different environments without restarting the server. Connections are pooled per profile and reused across calls.
+
+```
+User: Compare the vertex count of MyGraph between staging and prod.
+
+Agent:
+  → get_vertex_count(profile="staging", graph_name="MyGraph")
+  → get_vertex_count(profile="prod",    graph_name="MyGraph")
+
+User: Show me the schema on staging, then run this GSQL on prod:
+      SHOW VERTEX Person
+
+Agent:
+  → get_graph_schema(profile="staging", graph_name="MyGraph")
+  → gsql(profile="prod", command="SHOW VERTEX Person")
+```
+
+A minimal system prompt that lets the agent discover profiles at runtime:
+
+```text
+You are a TigerGraph assistant with access to multiple environments
+through the tigergraph-mcp server.
+
+At the start of a session — or whenever the user references an
+environment you haven't seen yet — call the `list_connections` tool
+to discover available profiles. Do not assume or hardcode profile names.
+
+Most tools accept an optional `profile` argument. When the user names
+an environment, pass `profile="<name>"` to the tool calls in that turn.
+If the user doesn't specify a profile, use the default profile.
+```
+
+Omitting `profile` falls back to `TG_PROFILE`, then `"default"`.
 
 ### Using with Existing Connection
 
