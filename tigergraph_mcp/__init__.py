@@ -1,4 +1,4 @@
-# Copyright 2025 TigerGraph Inc.
+# Copyright 2025-2026 TigerGraph Inc.
 # Licensed under the Apache License, Version 2.0.
 # See the LICENSE file or https://www.apache.org/licenses/LICENSE-2.0
 #
@@ -20,7 +20,7 @@ from .tool_names import TigerGraphToolName
 try:
     __version__ = _pkg_version("tigergraph-mcp")
 except PackageNotFoundError:
-    __version__ = "1.0.0"
+    __version__ = "1.0.1"
 
 __license__ = "Apache 2"
 

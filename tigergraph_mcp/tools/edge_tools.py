@@ -1,4 +1,4 @@
-# Copyright 2025 TigerGraph Inc.
+# Copyright 2025-2026 TigerGraph Inc.
 # Licensed under the Apache License, Version 2.0.
 # See the LICENSE file or https://www.apache.org/licenses/LICENSE-2.0
 #

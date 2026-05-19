@@ -1,17 +1,20 @@
+{% set version = "1.0.1" %}
 {% set python_min = "3.10" %}
 
 package:
   name: tigergraph-mcp
-  version: "1.0.0"
+  version: "{{ version }}"
 
 source:
-  url: https://pypi.org/packages/source/t/tigergraph-mcp/tigergraph_mcp-1.0.0.tar.gz
-  # sha256: UPDATE after publishing to PyPI
+  url: https://pypi.org/packages/source/t/tigergraph-mcp/tigergraph_mcp-{{ version }}.tar.gz
+  # sha256: updated automatically by build.sh --conda-build
 
 build:
   number: 0
   noarch: python
   script: {{ PYTHON }} -m pip install . --no-deps -vv
+  entry_points:
+    - tigergraph-mcp = tigergraph_mcp.main:main
 
 requirements:
   host:
@@ -21,7 +24,7 @@ requirements:
     - wheel
   run:
     - python >={{ python_min }}
-    - pytigergraph >=2.0.2
+    - pytigergraph >=2.0.4
     - mcp >=1.0.0
     - pydantic >=2.0.0
     - click

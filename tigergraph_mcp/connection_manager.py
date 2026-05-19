@@ -1,4 +1,4 @@
-# Copyright 2025 TigerGraph Inc.
+# Copyright 2025-2026 TigerGraph Inc.
 # Licensed under the Apache License, Version 2.0.
 # See the LICENSE file or https://www.apache.org/licenses/LICENSE-2.0
 #
@@ -20,7 +20,6 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from pyTigerGraph import AsyncTigerGraphConnection
-from pyTigerGraph.common.exception import TigerGraphException
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +177,7 @@ class ConnectionManager:
         graphname = graph_name or _get_env_for_profile(profile, "GRAPHNAME", "")
         username = _get_env_for_profile(profile, "USERNAME", "tigergraph")
         password = _get_env_for_profile(profile, "PASSWORD", "tigergraph")
-        gsql_secret = _get_env_for_profile(profile, "SECRET", "")
+        secret = _get_env_for_profile(profile, "SECRET", "")
         api_token = _get_env_for_profile(profile, "API_TOKEN", "")
         jwt_token = _get_env_for_profile(profile, "JWT_TOKEN", "")
         restpp_port = _get_env_for_profile(profile, "RESTPP_PORT", "9000")
@@ -191,7 +190,7 @@ class ConnectionManager:
             graphname=graphname,
             username=username,
             password=password,
-            gsqlSecret=gsql_secret if gsql_secret else "",
+            gsqlSecret=secret if secret else "",
             apiToken=api_token if api_token else "",
             jwtToken=jwt_token if jwt_token else "",
             restppPort=restpp_port,
@@ -201,9 +200,6 @@ class ConnectionManager:
             certPath=cert_path,
         )
 
-        if not jwt_token and not api_token:
-            cls._auto_generate_token(conn, gsql_secret, profile)
-
         cls._connection_pool[cache_key] = conn
 
         if profile == "default":
@@ -211,94 +207,6 @@ class ConnectionManager:
 
         logger.info(f"Created connection for profile '{profile}' -> {host}")
         return conn
-
-    @classmethod
-    def _auto_generate_token(
-        cls,
-        conn: AsyncTigerGraphConnection,
-        gsql_secret: str,
-        profile: str,
-    ) -> None:
-        """Try to auto-generate an auth token when only username/password are provided.
-
-        Checks whether REST++ authentication is enabled by inspecting the
-        connection's ``restppAuthEnabled`` flag (set during ``__init__``
-        if pyTigerGraph was able to query ``/gsqlserver/gsql/authinfo``).
-
-        * If REST++ auth is **disabled**, Basic auth suffices — nothing to do.
-        * If REST++ auth is **enabled**, a token is required for RESTPP
-          endpoints.  The method resolves a secret (from ``TG_SECRET``, existing
-          secrets on the server, or by creating one) and then generates a token.
-
-        Version-specific behavior:
-        * TG 3.x: uses plaintext tokens via legacy ``/requesttoken``.
-        * TG 4.1.2+: uses JWT tokens via ``POST /gsql/v1/tokens``.
-        """
-        try:
-            restpp_auth = getattr(conn, "restppAuthEnabled", None)
-            if restpp_auth is False:
-                logger.debug(
-                    f"[{profile}] REST++ auth disabled — skipping token generation"
-                )
-                return
-            if restpp_auth is None:
-                logger.debug(
-                    f"[{profile}] Unable to determine REST++ auth status — "
-                    "attempting token generation as a precaution"
-                )
-
-            secret = gsql_secret
-            if not secret:
-                try:
-                    existing = conn.getSecrets()
-                    if isinstance(existing, dict) and existing:
-                        secret = next(iter(existing.values()))
-                        logger.debug(f"[{profile}] Reusing existing secret")
-                    elif isinstance(existing, list) and existing:
-                        first = existing[0]
-                        secret = first.get("value", first.get("secret", "")) if isinstance(first, dict) else str(first)
-                        logger.debug(f"[{profile}] Reusing existing secret")
-                except Exception:
-                    pass
-
-            if not secret:
-                try:
-                    result = conn.createSecret()
-                    if isinstance(result, dict):
-                        secret = result.get("value", result.get("secret", ""))
-                    elif isinstance(result, str):
-                        secret = result
-                    logger.info(f"[{profile}] Created new secret for token generation")
-                except Exception as e:
-                    logger.warning(
-                        f"[{profile}] Could not create secret: {e} — "
-                        "RESTPP calls may fail if REST++ auth is enabled"
-                    )
-                    return
-
-            if not secret:
-                logger.warning(f"[{profile}] No secret available for token generation")
-                return
-
-            try:
-                token_result = conn.getToken(secret)
-                if isinstance(token_result, tuple):
-                    token = token_result[0]
-                elif isinstance(token_result, dict):
-                    token = token_result.get("token", token_result.get("results", {}).get("token", ""))
-                else:
-                    token = str(token_result)
-
-                if token:
-                    conn.apiToken = token
-                    conn._refresh_auth_headers()
-                    logger.info(f"[{profile}] Auto-generated auth token successfully")
-                else:
-                    logger.warning(f"[{profile}] Token generation returned empty result")
-            except Exception as e:
-                logger.warning(f"[{profile}] Token generation failed: {e}")
-        except Exception as e:
-            logger.warning(f"[{profile}] Auto-token generation error: {e}")
 
     @classmethod
     def get_profile_info(cls, profile: str = "default") -> Dict[str, str]:
@@ -389,4 +297,5 @@ def get_connection(
         )
 
     effective_profile = profile or os.getenv("TG_PROFILE", "default")
-    return ConnectionManager.get_connection_for_profile(effective_profile, graph_name)
+    conn = ConnectionManager.get_connection_for_profile(effective_profile, graph_name)
+    return conn

@@ -12,11 +12,13 @@ Workflow under test:
   4. Cleanup (drop graph)
 
 Requirements:
-  - A running TigerGraph instance (set TG_HOST, TG_USERNAME, TG_PASSWORD)
+  - A running TigerGraph instance (override TG_HOST/TG_USERNAME/TG_PASSWORD
+    if not on localhost with default credentials)
   - pip install tigergraph-mcp[dev]
 
 Run:
-    TG_HOST=http://192.168.11.11 pytest tests/test_workflow_mcp.py -v -s
+    pytest tests/test_workflow_mcp.py -v -s
+    TG_HOST=http://my-host pytest tests/test_workflow_mcp.py -v -s
 
 Skip in CI (no live DB):
     pytest tests/ -v --ignore=tests/test_workflow_mcp.py
@@ -33,12 +35,6 @@ import pytest
 
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
-
-# Skip the entire module when no TG_HOST is configured (e.g. CI).
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("TG_HOST"),
-    reason="TG_HOST not set — skipping MCP integration tests",
-)
 
 GRAPH = "WorkflowTestGraph"
 TIMEOUT = timedelta(seconds=30)
@@ -79,7 +75,7 @@ def _server_params():
         env={
             "HOME": os.environ["HOME"],
             "PATH": os.environ["PATH"],
-            "TG_HOST": os.environ["TG_HOST"],
+            "TG_HOST": os.environ.get("TG_HOST", "http://localhost"),
             "TG_USERNAME": os.environ.get("TG_USERNAME", "tigergraph"),
             "TG_PASSWORD": os.environ.get("TG_PASSWORD", "tigergraph"),
             "TG_GS_PORT": os.environ.get("TG_GS_PORT", "14240"),
@@ -216,7 +212,7 @@ async def test_full_workflow():
             assert p["data"]["edge_count"] == 3
 
             # ── 5. Verify counts (wait for data commit) ─────────
-            await asyncio.sleep(3)
+            await asyncio.sleep(10)
 
             r = await call(session, "tigergraph__get_vertex_count", {"graph_name": GRAPH})
             p = assert_ok(r, "get_vertex_count")
