@@ -110,7 +110,7 @@ if $DO_CONDA_BUILD; then
     echo "  Updated meta.yaml sha256: $COMPUTED_SHA"
 
     echo "---- Building conda package ----"
-    conda build -c conda-forge "$RECIPE_DIR"
+    conda build -c tigergraph -c conda-forge "$RECIPE_DIR"
 fi
 
 if $DO_CONDA_UPLOAD; then
@@ -119,7 +119,7 @@ if $DO_CONDA_UPLOAD; then
         exit 1
     fi
 
-    CONDA_PKG=$(conda build -c conda-forge "$RECIPE_DIR" --output)
+    CONDA_PKG=$(conda build -c tigergraph -c conda-forge "$RECIPE_DIR" --output)
     if [[ ! -f "$CONDA_PKG" ]]; then
         echo "Error: conda package not found at $CONDA_PKG. Run --conda-build first." >&2
         exit 1
