@@ -286,6 +286,17 @@ client = MultiServerMCPClient(
 tools = asyncio.run(client.get_tools())
 ```
 
+> **Note:** You can pass your TigerGraph database credentials directly into the "env" mapping:
+> 
+> ```python
+>     "env": {
+>       "TG_HOST": "http://localhost",
+>       "TG_USERNAME": "tigergraph",
+>       "TG_PASSWORD": "tigergraph",
+>       "TG_GRAPHNAME": "MyGraph"
+>     }
+> ```
+
 ### Using MCP Client SDK Directly
 
 ```python
