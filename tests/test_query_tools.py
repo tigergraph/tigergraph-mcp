@@ -13,6 +13,8 @@ from tigergraph_mcp.tools.query_tools import (
     run_query,
     show_query,
     get_query_metadata,
+    update_query_description,
+    get_query_description,
 )
 
 PATCH_TARGET = "tigergraph_mcp.tools.query_tools.get_connection"
@@ -170,6 +172,79 @@ class TestGetQueryMetadata(MCPToolTestBase):
         self.mock_conn.getQueryMetadata.side_effect = Exception("not found")
 
         result = await get_query_metadata(query_name="nope")
+        self.assert_error(result)
+
+
+class TestUpdateQueryDescription(MCPToolTestBase):
+
+    @patch(PATCH_TARGET)
+    async def test_success(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.updateQueryDescription.return_value = {"error": False}
+
+        result = await update_query_description(
+            query_name="myQ",
+            query_description="Returns friends.",
+            parameter_descriptions={"personId": "ID of the person"},
+        )
+        resp = self.assert_success(result)
+        self.assertEqual(resp["data"]["query_name"], "myQ")
+        self.mock_conn.updateQueryDescription.assert_called_once_with(
+            "myQ", "Returns friends.", {"personId": "ID of the person"}
+        )
+
+    @patch(PATCH_TARGET)
+    async def test_no_param_descriptions(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.updateQueryDescription.return_value = {"error": False}
+
+        result = await update_query_description(
+            query_name="myQ", query_description="Returns friends."
+        )
+        self.assert_success(result)
+        self.mock_conn.updateQueryDescription.assert_called_once_with(
+            "myQ", "Returns friends.", {}
+        )
+
+    @patch(PATCH_TARGET)
+    async def test_exception(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.updateQueryDescription.side_effect = Exception("unsupported version")
+
+        result = await update_query_description(
+            query_name="myQ", query_description="x"
+        )
+        self.assert_error(result)
+
+
+class TestGetQueryDescription(MCPToolTestBase):
+
+    @patch(PATCH_TARGET)
+    async def test_success(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.getQueryDescription.return_value = [
+            {"queryName": "myQ", "description": "Returns friends."}
+        ]
+
+        result = await get_query_description(query_name="myQ")
+        resp = self.assert_success(result)
+        self.assertEqual(resp["data"]["query_name"], "myQ")
+
+    @patch(PATCH_TARGET)
+    async def test_default_all(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.getQueryDescription.return_value = []
+
+        result = await get_query_description()
+        self.assert_success(result)
+        self.mock_conn.getQueryDescription.assert_called_once_with("all")
+
+    @patch(PATCH_TARGET)
+    async def test_exception(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.getQueryDescription.side_effect = Exception("not found")
+
+        result = await get_query_description(query_name="nope")
         self.assert_error(result)
 
 

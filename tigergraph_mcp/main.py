@@ -20,7 +20,31 @@ from .server import serve
 @click.option("-v", "--verbose", count=True)
 @click.option("--env-file", type=click.Path(exists=True, path_type=Path), default=None,
               help="Path to .env file (default: searches for .env in current and parent directories)")
-def main(verbose: bool, env_file: Path = None) -> None:
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio", "streamable-http", "sse"], case_sensitive=False),
+    default="stdio",
+    show_default=True,
+    help=(
+        "Transport mode. Use 'stdio' for single-user IDE integrations "
+        "(default). Use 'streamable-http' for multi-user deployments. "
+        "'sse' is the legacy HTTP transport."
+    ),
+)
+@click.option("--host", default="127.0.0.1", show_default=True,
+              help="Bind address for HTTP transports.")
+@click.option("--port", type=int, default=8000, show_default=True,
+              help="TCP port for HTTP transports.")
+@click.option("--mount-path", default="/mcp", show_default=True,
+              help="URL path mount point for HTTP transports.")
+def main(
+    verbose: bool,
+    env_file: Path = None,
+    transport: str = "stdio",
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    mount_path: str = "/mcp",
+) -> None:
     """TigerGraph MCP Server - TigerGraph functionality for MCP
 
     The server will automatically load environment variables from a .env file
@@ -42,7 +66,9 @@ def main(verbose: bool, env_file: Path = None) -> None:
     from .connection_manager import ConnectionManager
     ConnectionManager.load_profiles(env_path=str(env_file) if env_file else None)
 
-    asyncio.run(serve())
+    asyncio.run(
+        serve(transport=transport.lower(), host=host, port=port, mount_path=mount_path)
+    )
 
 
 if __name__ == "__main__":

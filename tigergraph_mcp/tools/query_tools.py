@@ -64,6 +64,25 @@ class GetQueryMetadataToolInput(BaseModel):
     query_name: str = Field(..., description="Name of the query.")
 
 
+class UpdateQueryDescriptionToolInput(BaseModel):
+    """Input schema for setting a query's description and parameter descriptions."""
+    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
+    query_name: str = Field(..., description="Name of the installed query to describe.")
+    query_description: str = Field(..., description="Human-readable description of what the query does.")
+    parameter_descriptions: Optional[Dict[str, str]] = Field(
+        default_factory=dict,
+        description="Per-parameter descriptions, keyed by parameter name (e.g. {\"personId\": \"The id of the person to look up\"}).",
+    )
+
+
+class GetQueryDescriptionToolInput(BaseModel):
+    """Input schema for reading a query's description and parameter descriptions."""
+    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
+    query_name: str = Field("all", description="Name of the query to read. Pass 'all' (default) to read descriptions for every query.")
+
+
 class DropQueryToolInput(BaseModel):
     """Input schema for dropping a query."""
     profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
@@ -260,6 +279,63 @@ get_query_metadata_tool = Tool(
         "**Related Tools:** show_query, is_query_installed, run_installed_query"
     ),
     inputSchema=GetQueryMetadataToolInput.model_json_schema(),
+)
+
+update_query_description_tool = Tool(
+    name=TigerGraphToolName.UPDATE_QUERY_DESCRIPTION,
+    description=(
+        "Set a human-readable description for an installed query and, optionally, "
+        "descriptions for each of its parameters. Requires TigerGraph 4.0+.\n\n"
+
+        "**Use When:**\n"
+        "  • Documenting what an installed query does and what its parameters mean\n"
+        "  • Making queries self-describing for agents and other consumers\n\n"
+
+        "**Quick Start:**\n"
+        "```json\n"
+        "{\n"
+        '  "query_name": "getPersonFriends",\n'
+        '  "query_description": "Return the friends of a given person.",\n'
+        '  "parameter_descriptions": {"personId": "ID of the person to look up"}\n'
+        "}\n"
+        "```\n\n"
+
+        "**Tips:**\n"
+        "  • Query must be installed first\n"
+        "  • Omit 'parameter_descriptions' to set only the query-level description\n"
+        "  • Read it back with 'get_query_description'\n\n"
+
+        "**Related Tools:** get_query_description, get_query_metadata, show_query"
+    ),
+    inputSchema=UpdateQueryDescriptionToolInput.model_json_schema(),
+)
+
+get_query_description_tool = Tool(
+    name=TigerGraphToolName.GET_QUERY_DESCRIPTION,
+    description=(
+        "Get the description and parameter descriptions of one or more installed "
+        "queries. Requires TigerGraph 4.0+.\n\n"
+
+        "**Use When:**\n"
+        "  • Discovering what a query does and what each parameter means\n"
+        "  • Building query documentation\n"
+        "  • Understanding a query's parameters together with their descriptions\n\n"
+
+        "**Quick Start:**\n"
+        "```json\n"
+        "{\n"
+        '  "query_name": "getPersonFriends"\n'
+        "}\n"
+        "```\n\n"
+
+        "**Tips:**\n"
+        "  • Pass 'all' (the default) to read descriptions for every query\n"
+        "  • Pair with 'get_query_metadata' to combine parameter types and descriptions\n"
+        "  • Set descriptions with 'update_query_description'\n\n"
+
+        "**Related Tools:** update_query_description, get_query_metadata, show_query"
+    ),
+    inputSchema=GetQueryDescriptionToolInput.model_json_schema(),
 )
 
 drop_query_tool = Tool(
@@ -592,6 +668,80 @@ async def get_query_metadata(
     except Exception as e:
         return format_error(
             operation="get_query_metadata",
+            error=e,
+            context={
+                "query_name": query_name,
+                "graph_name": graph_name or "default"
+            }
+        )
+
+
+async def update_query_description(
+    query_name: str,
+    query_description: str,
+    parameter_descriptions: Optional[Dict[str, str]] = None,
+    profile: Optional[str] = None,
+    graph_name: Optional[str] = None,
+) -> List[TextContent]:
+    """Set a query's description and parameter descriptions."""
+    try:
+        conn = get_connection(profile=profile, graph_name=graph_name)
+        result = await conn.updateQueryDescription(
+            query_name, query_description, parameter_descriptions or {}
+        )
+
+        return format_success(
+            operation="update_query_description",
+            summary=f"Success: Description updated for query '{query_name}'",
+            data={
+                "query_name": query_name,
+                "query_description": query_description,
+                "parameter_descriptions": parameter_descriptions or {},
+                "result": result,
+            },
+            suggestions=[
+                f"Read it back: get_query_description(query_name='{query_name}')",
+                f"View parameter types: get_query_metadata(query_name='{query_name}')",
+            ],
+            metadata={"graph_name": conn.graphname}
+        )
+    except Exception as e:
+        return format_error(
+            operation="update_query_description",
+            error=e,
+            context={
+                "query_name": query_name,
+                "graph_name": graph_name or "default"
+            }
+        )
+
+
+async def get_query_description(
+    query_name: str = "all",
+    profile: Optional[str] = None,
+    graph_name: Optional[str] = None,
+) -> List[TextContent]:
+    """Get a query's description and parameter descriptions."""
+    try:
+        conn = get_connection(profile=profile, graph_name=graph_name)
+        result = await conn.getQueryDescription(query_name)
+
+        return format_success(
+            operation="get_query_description",
+            summary=f"Success: Query description retrieved for '{query_name}'",
+            data={
+                "query_name": query_name,
+                "descriptions": result,
+            },
+            suggestions=[
+                f"Set/update it: update_query_description(query_name='{query_name}', query_description='...')",
+                f"View parameter types: get_query_metadata(query_name='{query_name}')",
+            ],
+            metadata={"graph_name": conn.graphname}
+        )
+    except Exception as e:
+        return format_error(
+            operation="get_query_description",
             error=e,
             context={
                 "query_name": query_name,

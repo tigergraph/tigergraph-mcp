@@ -744,6 +744,36 @@ TOOL_METADATA: Dict[str, ToolMetadata] = {
         examples=[]
     ),
 
+    "tigergraph__update_query_description": ToolMetadata(
+        category=ToolCategory.QUERY,
+        prerequisites=["tigergraph__install_query"],
+        related_tools=["tigergraph__get_query_description", "tigergraph__get_query_metadata"],
+        common_next_steps=["tigergraph__get_query_description"],
+        use_cases=[
+            "Documenting what an installed query does",
+            "Describing query parameters",
+            "Making queries self-describing for agents",
+        ],
+        complexity="basic",
+        keywords=["describe", "description", "document", "annotate", "parameters", "query"],
+        examples=[]
+    ),
+
+    "tigergraph__get_query_description": ToolMetadata(
+        category=ToolCategory.QUERY,
+        prerequisites=[],
+        related_tools=["tigergraph__update_query_description", "tigergraph__get_query_metadata"],
+        common_next_steps=["tigergraph__run_installed_query"],
+        use_cases=[
+            "Reading a query's description and parameter descriptions",
+            "Building query documentation",
+            "Understanding parameters together with their descriptions",
+        ],
+        complexity="basic",
+        keywords=["description", "describe", "document", "parameters", "query", "info"],
+        examples=[]
+    ),
+
     "tigergraph__is_query_installed": ToolMetadata(
         category=ToolCategory.QUERY,
         prerequisites=[],
@@ -1011,6 +1041,20 @@ TOOL_METADATA: Dict[str, ToolMetadata] = {
         use_cases=["Viewing connection details for a profile"],
         complexity="basic",
         keywords=["connection", "profile", "show", "details", "info"],
+        examples=[]
+    ),
+
+    "tigergraph__authenticate": ToolMetadata(
+        category=ToolCategory.UTILITY,
+        prerequisites=[],
+        related_tools=["tigergraph__list_connections", "tigergraph__show_connection"],
+        common_next_steps=["tigergraph__get_graph_schema", "tigergraph__list_graphs"],
+        use_cases=[
+            "Registering session-scoped TigerGraph credentials in HTTP/SSE mode",
+            "Pinning the active connection at the start of a multi-user MCP session",
+        ],
+        complexity="basic",
+        keywords=["authenticate", "login", "credentials", "session", "http", "sse"],
         examples=[]
     ),
 

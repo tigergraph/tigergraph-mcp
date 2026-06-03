@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-06-02
+
+### Added
+
+- **HTTP/SSE transport for multi-user deployments** — new `--transport stdio|streamable-http|sse` CLI flag plus `--host`, `--port`, and `--mount-path` options. HTTP modes serve many users from one process; each MCP session owns its own TigerGraph connection so concurrent users stay isolated.
+- **Header-based authentication for HTTP/SSE** — clients pass `X-TG-Host` plus credentials (`X-TG-Api-Token`, `X-TG-Jwt-Token`, or `X-TG-Username` + `X-TG-Password`) on every request. The MCP server validates against TigerGraph and returns `401 Unauthorized` on failure, so the MCP client sees a connection failure immediately rather than a tool failure.
+- **`authenticate` tool** — registers (or replaces) the active session's TigerGraph credentials from inside an MCP conversation. Useful for switching to a different TigerGraph instance or user mid-session.
+- **`update_query_description` / `get_query_description` tools** — wrap pyTigerGraph's `updateQueryDescription` / `getQueryDescription` (TigerGraph 4.0+) so agents can attach and read human-readable descriptions for installed queries and their parameters.
+- **`examples/multi_user_backend/` reference** — FastAPI service that demonstrates the "one tigergraph-mcp subprocess + one agent per logged-in user" pattern with idle-session sweeper, per-user request lock, and session caps.
+
 ## [1.0.1] - 2026-05-19
 
 ### Added

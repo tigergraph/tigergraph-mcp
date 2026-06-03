@@ -11,6 +11,7 @@ Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact w
   - [Running the MCP Server](#running-the-mcp-server)
   - [Configuration](#configuration)
   - [Multiple Connection Profiles](#multiple-connection-profiles)
+  - [Multi-user Deployments (HTTP/SSE)](#multi-user-deployments-httpsse)
   - [Using with Existing Connection](#using-with-existing-connection)
 - [Client Examples](#client-examples)
   - [Using MultiServerMCPClient](#using-multiserverMCPclient)
@@ -87,9 +88,13 @@ For quick tasks or straightforward tool invocations directly in your editor:
 
 ### Running the MCP Server
 
+#### stdio (default — single user, one IDE/agent)
+
 ```bash
 tigergraph-mcp
 ```
+
+Credentials come from env vars or a `.env` file. This is the right mode for Claude Code, Cursor, GitHub Copilot Chat, or any single-user IDE integration.
 
 With a custom `.env` file:
 
@@ -112,6 +117,23 @@ import asyncio
 
 asyncio.run(serve())
 ```
+
+#### Streamable HTTP / SSE (multi-user, shared server)
+
+```bash
+tigergraph-mcp --transport streamable-http --host 0.0.0.0 --port 8000
+# legacy SSE shape:
+tigergraph-mcp --transport sse --host 0.0.0.0 --port 8000
+```
+
+In HTTP modes each MCP session gets its own connection pool, so concurrent users don't share state. Clients connect at `http://<host>:<port>/mcp` (the mount path is configurable via `--mount-path`).
+
+Credentials per session come from one of two places:
+
+1. The `authenticate` MCP tool (see [Multi-user Deployments](#multi-user-deployments-httpsse) below) — the client registers credentials as its first call.
+2. The same `TG_*` / `<PROFILE>_TG_*` env vars used by stdio — useful when every session should share one cluster.
+
+Authenticate the HTTP endpoint itself with a reverse proxy / API gateway when exposing it beyond localhost. The MCP server does not perform user authentication on its own.
 
 ### Configuration
 
@@ -243,6 +265,73 @@ If the user doesn't specify a profile, use the default profile.
 
 Omitting `profile` falls back to `TG_PROFILE`, then `"default"`.
 
+### Multi-user Deployments (HTTP/SSE)
+
+Run one shared `tigergraph-mcp` HTTP server and let each logged-in user supply their own TigerGraph credentials. Sessions are isolated: every user's connection pool, profile state, and tool list lives in its own `SessionConnectionManager`.
+
+#### Option 1 — Frontend backend owns the MCP client (recommended)
+
+Your web backend authenticates the user, opens an MCP session per login, calls `tigergraph__authenticate` once to register their TigerGraph credentials, then routes all subsequent agent traffic through that session. The LLM never sees credentials.
+
+```text
+[user logs in]              backend validates the user (any IdP or
+                            passthrough TigerGraph auth) and mints a
+                            short-lived TigerGraph token.
+[per-user MCP session]      backend opens one MCPClient per user and
+                            invokes `tigergraph__authenticate(host=...,
+                            api_token=...)` as the session's first call.
+[agent traffic]              every subsequent tool call goes to the
+                            same session → same TigerGraph connection.
+[user logs out]             backend closes the MCPClient → MCP server
+                            drops the session's connection pool.
+```
+
+A working reference lives in [`examples/multi_user_backend/`](examples/multi_user_backend/): a FastAPI service that does the above with subprocess-per-user (stdio). To use the shared HTTP server instead, point each user's `MultiServerMCPClient` at `streamable_http` with the URL of your tigergraph-mcp instance, and call `tigergraph__authenticate` instead of relying on env-var profiles.
+
+#### Option 2 — Cursor / Copilot pointing at a remote MCP server
+
+Each developer's `mcp.json` carries their own TigerGraph credentials as headers. The MCP server validates them against TigerGraph on every request and 401s on failure, so a bad credential surfaces as a connection error rather than a tool failure:
+
+```json
+{
+  "servers": {
+    "tigergraph-mcp-server": {
+      "type": "http",
+      "url": "https://my-tg-mcp.internal/mcp",
+      "headers": {
+        "X-TG-Host": "https://acme.tgcloud.io",
+        "X-TG-Api-Token": "${env:TG_API_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+Recognised credential headers (mirror the `TG_*` env vars used in stdio mode):
+
+| Header | Env-var equivalent |
+|---|---|
+| `X-TG-Host` (required) | `TG_HOST` |
+| `X-TG-Graphname` | `TG_GRAPHNAME` |
+| `X-TG-Username` + `X-TG-Password` | `TG_USERNAME` + `TG_PASSWORD` |
+| `X-TG-Secret` | `TG_SECRET` |
+| `X-TG-Api-Token` | `TG_API_TOKEN` |
+| `X-TG-Jwt-Token` | `TG_JWT_TOKEN` |
+| `X-TG-Restpp-Port`, `X-TG-Gs-Port`, `X-TG-Ssl-Port` | `TG_RESTPP_PORT`, `TG_GS_PORT`, `TG_SSL_PORT` |
+| `X-TG-Tgcloud` (`true`/`false`) | `TG_TGCLOUD` |
+| `X-TG-Cert-Path` | `TG_CERT_PATH` |
+
+`X-TG-Host` plus one of (`X-TG-Api-Token`, `X-TG-Jwt-Token`, `X-TG-Username` + `X-TG-Password`) is required; the rest are optional.
+
+For per-call credential routing inside the agent's conversation, have the agent call `authenticate` once at session start:
+
+```text
+User: Connect to my TigerGraph at https://acme.tgcloud.io with token eyJ...
+Agent:
+  → authenticate(host="https://acme.tgcloud.io", api_token="eyJ...")
+  → get_graph_schema(graph_name="MyGraph")
+```
+
 ### Using with Existing Connection
 
 ```python
@@ -349,6 +438,7 @@ asyncio.run(call_tool())
 - `tigergraph__run_installed_query` — Run an installed query
 - `tigergraph__install_query` / `tigergraph__drop_query`
 - `tigergraph__show_query` / `tigergraph__get_query_metadata` / `tigergraph__is_query_installed`
+- `tigergraph__update_query_description` / `tigergraph__get_query_description` — Set or read query and per-parameter descriptions (TigerGraph 4.0+)
 - `tigergraph__get_neighbors`
 
 ### Loading Job Operations
@@ -380,6 +470,10 @@ asyncio.run(call_tool())
 - `tigergraph__get_data_source` / `tigergraph__drop_data_source`
 - `tigergraph__get_all_data_sources` / `tigergraph__drop_all_data_sources`
 - `tigergraph__preview_sample_data`
+
+### Connection / Session
+- `tigergraph__list_connections` / `tigergraph__show_connection` — Inspect configured profiles
+- `tigergraph__authenticate` — Register per-session TigerGraph credentials (HTTP/SSE mode)
 
 ### Discovery & Navigation
 - `tigergraph__discover_tools` — Search for tools by description or keywords

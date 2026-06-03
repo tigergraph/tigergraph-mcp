@@ -52,8 +52,11 @@ class TigerGraphToolName(str, Enum):
     RUN_INSTALLED_QUERY = "tigergraph__run_installed_query"
     INSTALL_QUERY = "tigergraph__install_query"
     DROP_QUERY = "tigergraph__drop_query"
+    AUTHENTICATE = "tigergraph__authenticate"
     SHOW_QUERY = "tigergraph__show_query"
     GET_QUERY_METADATA = "tigergraph__get_query_metadata"
+    UPDATE_QUERY_DESCRIPTION = "tigergraph__update_query_description"
+    GET_QUERY_DESCRIPTION = "tigergraph__get_query_description"
     IS_QUERY_INSTALLED = "tigergraph__is_query_installed"
     GET_NEIGHBORS = "tigergraph__get_neighbors"
 
