@@ -327,6 +327,12 @@ Using one
 - Pass `profile="<name>"` on every tool call meant for that environment.
 - A single turn may use different profiles when the user compares
   environments.
+
+Reporting
+- Answer about the environments the user asked about. Do not list the
+  profiles you considered and skipped, and do not narrate the lookup.
+- Name the environment alongside each answer, so the user knows which
+  one it came from — especially when reporting more than one.
 ```
 
 With that prompt, a site named in plain language resolves to a profile:
@@ -340,19 +346,19 @@ Agent:
 
 User: And on mycompany.i.tgcloud.io?          # a host, not an environment
 
-Agent:
-  → list_connections()
-      dev       → http://localhost                (default)
-      prod      → https://mycompany.i.tgcloud.io  ← matches
-      prod_ro   → https://mycompany.i.tgcloud.io  ← also matches
-      staging   → https://tg-staging.example.com
+Agent:                                        # tool calls, not shown to the user
+  → list_connections()                        # prod and prod_ro share that host
   → get_vertex_count(profile="prod",    graph_name="MyGraph")
   → get_vertex_count(profile="prod_ro", graph_name="MyGraph")
 
+Agent replies:
   "Two profiles reach that host:
      prod (as analyst):     1,204 vertices
      prod_ro (as readonly): 1,204 vertices"
 ```
+
+The reply names the environment behind each number and says nothing about `dev` or
+`staging`, which the user did not ask about.
 
 Omitting `profile`, or passing `"default"`, uses the default profile — `TG_DEFAULT_PROFILE` if set (or its alias `TG_PROFILE`), otherwise the unprefixed `TG_*` variables.
 
