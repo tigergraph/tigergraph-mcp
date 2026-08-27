@@ -13,6 +13,7 @@ from mcp.types import Tool
 from .connection_tools import (
     list_connections_tool,
     show_connection_tool,
+    authenticate_tool,
 )
 from .schema_tools import (
     # Global schema operations (database level)
@@ -53,6 +54,8 @@ from .query_tools import (
     install_query_tool,
     show_query_tool,
     get_query_metadata_tool,
+    update_query_description_tool,
+    get_query_description_tool,
     drop_query_tool,
     is_query_installed_tool,
     get_neighbors_tool,
@@ -87,6 +90,7 @@ from .datasource_tools import (
     drop_data_source_tool,
     get_all_data_sources_tool,
     drop_all_data_sources_tool,
+    get_data_source_types_tool,
     preview_sample_data_tool,
 )
 from .discovery_tools import (
@@ -106,6 +110,7 @@ def get_all_tools() -> List[Tool]:
         # Connection profile operations
         list_connections_tool,
         show_connection_tool,
+        authenticate_tool,
         # Global schema operations (database level)
         get_global_schema_tool,
         # Graph operations (database level)
@@ -143,6 +148,8 @@ def get_all_tools() -> List[Tool]:
         drop_query_tool,
         show_query_tool,
         get_query_metadata_tool,
+        update_query_description_tool,
+        get_query_description_tool,
         is_query_installed_tool,
         get_neighbors_tool,
         # Loading job tools
@@ -178,6 +185,7 @@ def get_all_tools() -> List[Tool]:
         drop_data_source_tool,
         get_all_data_sources_tool,
         drop_all_data_sources_tool,
+        get_data_source_types_tool,
         preview_sample_data_tool,
         # Discovery tools
         discover_tools_tool,

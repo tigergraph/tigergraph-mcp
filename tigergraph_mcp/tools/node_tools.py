@@ -25,7 +25,7 @@ from pyTigerGraph.common.exception import TigerGraphException
 
 class AddNodeToolInput(BaseModel):
     """Input schema for adding a node."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(
         None,
         description=(
@@ -186,7 +186,7 @@ async def add_node(
 
 class AddNodesToolInput(BaseModel):
     """Input schema for adding multiple nodes."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(
         None,
         description="Name of the graph. If not provided, uses default connection."
@@ -382,7 +382,7 @@ async def add_nodes(
 
 class GetNodeToolInput(BaseModel):
     """Input schema for getting a node."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph.")
     vertex_type: str = Field(..., description="Type of the vertex to retrieve.")
     vertex_id: Union[str, int] = Field(..., description="ID of the vertex to retrieve.")
@@ -492,7 +492,7 @@ class GetNodesToolInput(BaseModel):
         default=None,
         description="Sort results by attribute. Use '-' prefix for descending (e.g., '-age')"
     )
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(
         default=None,
         description="Name of the graph to query (uses default if not specified)"
@@ -598,7 +598,7 @@ class DeleteNodeToolInput(BaseModel):
     vertex_id: Union[str, int] = Field(
         description="The unique identifier of the vertex to delete"
     )
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(
         default=None,
         description="Name of the graph (uses default if not specified)"
@@ -706,7 +706,7 @@ class DeleteNodesToolInput(BaseModel):
         default=None,
         description="Optional list of specific vertex IDs to delete (alternative to WHERE clause)"
     )
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(
         default=None,
         description="Name of the graph (uses default if not specified)"
@@ -806,7 +806,7 @@ class HasNodeToolInput(BaseModel):
     vertex_id: Union[str, int] = Field(
         description="The unique identifier of the vertex"
     )
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(
         default=None,
         description="Name of the graph (uses default if not specified)"
@@ -901,7 +901,7 @@ class GetNodeEdgesToolInput(BaseModel):
         default=100,
         description="Maximum number of edges to return (default: 100)"
     )
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(
         default=None,
         description="Name of the graph (uses default if not specified)"

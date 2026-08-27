@@ -6,6 +6,7 @@ from unittest.mock import patch
 from tests.mcp import MCPToolTestBase
 from tigergraph_mcp.tools.data_tools import (
     _generate_loading_job_gsql,
+    _validate_file_configs,
     create_loading_job,
     drop_loading_job,
     get_loading_jobs,
@@ -380,6 +381,155 @@ class TestProfilePropagation(MCPToolTestBase):
             profile="analytics",
         )
         mock_gc.assert_called_with(profile="analytics", graph_name=None)
+
+
+class TestWarehouseLoadingJobGsql(unittest.TestCase):
+    """A file entry backed by a data source query instead of a path."""
+
+    WAREHOUSE_FILE = {
+        "file_alias": "f_person",
+        "data_source": "sf1",
+        "query": "SELECT id, name FROM MYDB.PUBLIC.PERSON",
+        "separator": "|",
+        "node_mappings": [
+            {"vertex_type": "Person", "attribute_mappings": {"id": 0, "name": 1}}
+        ],
+    }
+
+    def test_define_filename_uses_the_data_source_query_form(self):
+        gsql = _generate_loading_job_gsql("G", "load_sf", [self.WAREHOUSE_FILE])
+        self.assertIn(
+            'DEFINE FILENAME f_person = "$sf1:SELECT id, name FROM MYDB.PUBLIC.PERSON";',
+            gsql,
+        )
+
+    def test_using_clause_omits_header_and_eol(self):
+        gsql = _generate_loading_job_gsql("G", "load_sf", [self.WAREHOUSE_FILE])
+        self.assertIn('USING SEPARATOR="|"', gsql)
+        self.assertNotIn("HEADER", gsql)
+        self.assertNotIn("EOL", gsql)
+
+    def test_columns_are_positional(self):
+        gsql = _generate_loading_job_gsql("G", "load_sf", [self.WAREHOUSE_FILE])
+        self.assertIn("TO VERTEX Person VALUES($0, $1)", gsql)
+
+    def test_file_backed_entry_keeps_header_and_eol(self):
+        gsql = _generate_loading_job_gsql("G", "load_csv", [{
+            "file_alias": "f1",
+            "file_path": "/data/people.csv",
+            "node_mappings": [
+                {"vertex_type": "Person", "attribute_mappings": {"id": 0}}
+            ],
+        }])
+        self.assertIn("HEADER=", gsql)
+        self.assertIn("EOL=", gsql)
+
+    def test_mixed_file_and_warehouse_entries_in_one_job(self):
+        gsql = _generate_loading_job_gsql("G", "mixed", [
+            self.WAREHOUSE_FILE,
+            {
+                "file_alias": "f_csv",
+                "file_path": "/data/extra.csv",
+                "node_mappings": [
+                    {"vertex_type": "Extra", "attribute_mappings": {"id": 0}}
+                ],
+            },
+        ])
+        self.assertIn('DEFINE FILENAME f_person = "$sf1:', gsql)
+        self.assertIn('DEFINE FILENAME f_csv = "/data/extra.csv";', gsql)
+
+
+class TestValidateFileConfigs(unittest.TestCase):
+
+    def test_valid_warehouse_entry(self):
+        self.assertEqual(_validate_file_configs([{
+            "file_alias": "f",
+            "data_source": "sf1",
+            "query": "SELECT id FROM T",
+            "node_mappings": [{"vertex_type": "P", "attribute_mappings": {"id": 0}}],
+        }]), [])
+
+    def test_valid_file_entry(self):
+        self.assertEqual(
+            _validate_file_configs([{"file_alias": "f", "file_path": "/a.csv"}]), []
+        )
+
+    def test_runtime_data_entry_needs_neither(self):
+        self.assertEqual(_validate_file_configs([{"file_alias": "f"}]), [])
+
+    def test_data_source_and_file_path_conflict(self):
+        errors = _validate_file_configs([{
+            "file_alias": "f", "file_path": "/a.csv",
+            "data_source": "sf1", "query": "SELECT 1",
+        }])
+        self.assertTrue(any("both" in e for e in errors))
+
+    def test_data_source_without_query(self):
+        errors = _validate_file_configs([{"file_alias": "f", "data_source": "sf1"}])
+        self.assertTrue(any("no 'query'" in e for e in errors))
+
+    def test_query_without_data_source(self):
+        errors = _validate_file_configs([{"file_alias": "f", "query": "SELECT 1"}])
+        self.assertTrue(any("no 'data_source'" in e for e in errors))
+
+    def test_named_columns_rejected_for_warehouse_node_mapping(self):
+        errors = _validate_file_configs([{
+            "file_alias": "f", "data_source": "sf1", "query": "SELECT id FROM T",
+            "node_mappings": [
+                {"vertex_type": "P", "attribute_mappings": {"id": "user_id"}}
+            ],
+        }])
+        self.assertTrue(any("user_id" in e for e in errors))
+
+    def test_named_columns_rejected_for_warehouse_edge_endpoints(self):
+        errors = _validate_file_configs([{
+            "file_alias": "f", "data_source": "sf1", "query": "SELECT a, b FROM T",
+            "edge_mappings": [
+                {"edge_type": "KNOWS", "source_column": "from_id", "target_column": 1}
+            ],
+        }])
+        self.assertTrue(any("from_id" in e for e in errors))
+
+    def test_named_columns_allowed_for_file_backed_entry(self):
+        self.assertEqual(_validate_file_configs([{
+            "file_alias": "f", "file_path": "/a.csv",
+            "node_mappings": [
+                {"vertex_type": "P", "attribute_mappings": {"id": "user_id"}}
+            ],
+        }]), [])
+
+
+class TestCreateLoadingJobWarehouseValidation(MCPToolTestBase):
+
+    @patch(PATCH_TARGET)
+    async def test_invalid_entry_fails_without_calling_the_server(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+
+        result = await create_loading_job(
+            job_name="bad",
+            files=[{"file_alias": "f", "data_source": "sf1"}],
+        )
+        self.assert_error(result)
+        self.mock_conn.gsql.assert_not_called()
+
+    @patch(PATCH_TARGET)
+    async def test_warehouse_job_is_created(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.gsql.return_value = "Successfully created loading jobs: [load_sf]."
+
+        result = await create_loading_job(
+            job_name="load_sf",
+            files=[{
+                "file_alias": "f_person",
+                "data_source": "sf1",
+                "query": "SELECT id, name FROM MYDB.PUBLIC.PERSON",
+                "node_mappings": [
+                    {"vertex_type": "Person", "attribute_mappings": {"id": 0, "name": 1}}
+                ],
+            }],
+        )
+        self.assert_success(result)
+        self.assertIn("$sf1:SELECT", self.mock_conn.gsql.call_args[0][0])
 
 
 if __name__ == "__main__":

@@ -117,3 +117,14 @@ Any other message is analyzed by the Planner crew, which breaks it into tool ste
 - **Domain-based routing**: The ToolExecutorCrews class groups tools by domain (schema, node, edge, query, etc.) and assigns specialized agents.
 - **Two-layer interaction**: Schemas and loading configs are presented in markdown for easy review. JSON is generated internally only when the user confirms.
 - **Human-in-the-loop**: `chat_session.wait_for_user_input()` blocks the flow until the user responds, enabling confirmation loops.
+
+### Data source credentials
+
+S3 data sources require both `access.key` and `secret.key`; TigerGraph rejects the
+request if either is missing or empty, including for public buckets, where the
+anonymous credentials provider governs actual access. Set `S3_ACCESS_KEY` and
+`S3_SECRET_KEY` in the environment to override the defaults.
+
+Ask the assistant to run `get_data_source_types` to see the keys any data source
+type requires. Beyond object storage, it can also connect Snowflake, BigQuery,
+PostgreSQL, and Iceberg — see [Loading from a data warehouse](warehouse_loading.md).

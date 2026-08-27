@@ -25,7 +25,7 @@ from pyTigerGraph.common.gsql import _is_reserved_keyword
 
 class GetGlobalSchemaToolInput(BaseModel):
     """Input schema for getting the global schema (all global vertex/edge types, graphs, etc.)."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
 
 
 # =============================================================================
@@ -34,12 +34,12 @@ class GetGlobalSchemaToolInput(BaseModel):
 
 class ListGraphsToolInput(BaseModel):
     """Input schema for listing all graph names in the database."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
 
 
 class CreateGraphToolInput(BaseModel):
     """Input schema for creating a new graph with its schema."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: str = Field(..., description="Name of the new graph to create.")
     vertex_types: List[Dict[str, Any]] = Field(..., description="List of vertex type definitions for this graph.")
     edge_types: List[Dict[str, Any]] = Field(default_factory=list, description="List of edge type definitions for this graph.")
@@ -47,13 +47,13 @@ class CreateGraphToolInput(BaseModel):
 
 class DropGraphToolInput(BaseModel):
     """Input schema for dropping a graph from the database."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: str = Field(..., description="Name of the graph to drop.")
 
 
 class ClearGraphDataToolInput(BaseModel):
     """Input schema for clearing all data from a graph (keeps schema structure)."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     vertex_type: Optional[str] = Field(None, description="Type of vertices to clear. If not provided, clears all data.")
     confirm: bool = Field(False, description="Must be True to confirm the deletion. This is a destructive operation.")
@@ -65,7 +65,7 @@ class ClearGraphDataToolInput(BaseModel):
 
 class GetGraphSchemaToolInput(BaseModel):
     """Input schema for getting a specific graph's schema (raw JSON)."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
 
 
@@ -90,7 +90,7 @@ class UpdateSchemaToolInput(BaseModel):
 
 class ShowGraphDetailsToolInput(BaseModel):
     """Input schema for showing details of a graph (schema, queries, jobs)."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     detail_type: Optional[str] = Field(
         None,

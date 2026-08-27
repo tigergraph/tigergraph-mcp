@@ -49,7 +49,7 @@ Click the **Start** button that appears above `"tigergraph-mcp-server":` to star
 
 ## 5. View Available Tools
 
-Click the Tools icon in the Chat view to see all TigerGraph-MCP tools. There are 65 tools covering schema, data, queries, vectors, and more.
+Click the Tools icon in the Chat view to see all TigerGraph-MCP tools. There are 68 tools covering schema, data, queries, vectors, and more.
 
 ---
 
@@ -108,9 +108,17 @@ How many vertices and edges are in the graph?
 ### Example 2: Load Data from S3
 
 ```
-Create an S3 data source named "s3_anonymous_source" with anonymous access
-(provider: org.apache.hadoop.fs.s3a.AnonymousAWSCredentialsProvider)
+Create an S3 data source named "s3_anonymous_source" with config:
+  access.key = <your key>
+  secret.key = <your secret>
+  file.reader.settings.fs.s3a.aws.credentials.provider =
+    org.apache.hadoop.fs.s3a.AnonymousAWSCredentialsProvider
 ```
+
+> TigerGraph requires both `access.key` and `secret.key` on an S3 data source, and rejects the request if either is missing or empty — including for public buckets, where the anonymous credentials provider is what actually governs access.
+> Run `tigergraph__get_data_source_types` to see the keys any type needs.
+> To load from Snowflake, BigQuery, PostgreSQL, or Iceberg instead, see
+> [Loading from a data warehouse](warehouse_loading.md).
 
 ```
 Preview the file s3a://tigergraph-solution-kits/connected_customer/customer_360/data/Individual_Info.csv

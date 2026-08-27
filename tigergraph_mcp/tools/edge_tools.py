@@ -20,7 +20,7 @@ from pyTigerGraph.common.exception import TigerGraphException
 
 class AddEdgeToolInput(BaseModel):
     """Input schema for adding an edge."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     source_vertex_type: str = Field(..., description="Type of the source vertex.")
     source_vertex_id: Union[str, int] = Field(..., description="ID of the source vertex.")
@@ -32,7 +32,7 @@ class AddEdgeToolInput(BaseModel):
 
 class AddEdgesToolInput(BaseModel):
     """Input schema for adding multiple edges."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     edge_type: str = Field(..., description="Type of the edges.")
     edges: List[Dict[str, Any]] = Field(
@@ -49,7 +49,7 @@ class AddEdgesToolInput(BaseModel):
 
 class GetEdgeToolInput(BaseModel):
     """Input schema for getting an edge."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     source_vertex_type: str = Field(..., description="Type of the source vertex.")
     source_vertex_id: Union[str, int] = Field(..., description="ID of the source vertex.")
@@ -60,7 +60,7 @@ class GetEdgeToolInput(BaseModel):
 
 class GetEdgesToolInput(BaseModel):
     """Input schema for getting multiple edges."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     source_vertex_type: Optional[str] = Field(None, description="Type of the source vertex. If not provided, gets all types.")
     source_vertex_id: Optional[Union[str, int]] = Field(None, description="ID of the source vertex. If not provided, gets all edges.")
@@ -70,7 +70,7 @@ class GetEdgesToolInput(BaseModel):
 
 class DeleteEdgeToolInput(BaseModel):
     """Input schema for deleting an edge."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     source_vertex_type: str = Field(..., description="Type of the source vertex.")
     source_vertex_id: Union[str, int] = Field(..., description="ID of the source vertex.")
@@ -81,7 +81,7 @@ class DeleteEdgeToolInput(BaseModel):
 
 class DeleteEdgesToolInput(BaseModel):
     """Input schema for deleting multiple edges."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     edge_type: str = Field(..., description="Type of the edges.")
     edges: List[Dict[str, Any]] = Field(..., description="List of edges with source and target vertex IDs.")
@@ -89,7 +89,7 @@ class DeleteEdgesToolInput(BaseModel):
 
 class HasEdgeToolInput(BaseModel):
     """Input schema for checking if an edge exists."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     source_vertex_type: str = Field(..., description="Type of the source vertex.")
     source_vertex_id: Union[str, int] = Field(..., description="ID of the source vertex.")

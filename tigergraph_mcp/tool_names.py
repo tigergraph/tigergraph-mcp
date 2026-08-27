@@ -52,8 +52,11 @@ class TigerGraphToolName(str, Enum):
     RUN_INSTALLED_QUERY = "tigergraph__run_installed_query"
     INSTALL_QUERY = "tigergraph__install_query"
     DROP_QUERY = "tigergraph__drop_query"
+    AUTHENTICATE = "tigergraph__authenticate"
     SHOW_QUERY = "tigergraph__show_query"
     GET_QUERY_METADATA = "tigergraph__get_query_metadata"
+    UPDATE_QUERY_DESCRIPTION = "tigergraph__update_query_description"
+    GET_QUERY_DESCRIPTION = "tigergraph__get_query_description"
     IS_QUERY_INSTALLED = "tigergraph__is_query_installed"
     GET_NEIGHBORS = "tigergraph__get_neighbors"
 
@@ -96,6 +99,7 @@ class TigerGraphToolName(str, Enum):
     GET_ALL_DATA_SOURCES = "tigergraph__get_all_data_sources"
     DROP_ALL_DATA_SOURCES = "tigergraph__drop_all_data_sources"
     PREVIEW_SAMPLE_DATA = "tigergraph__preview_sample_data"
+    GET_DATA_SOURCE_TYPES = "tigergraph__get_data_source_types"
 
     # Connection Profile Operations
     LIST_CONNECTIONS = "tigergraph__list_connections"

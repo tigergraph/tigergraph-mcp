@@ -19,21 +19,21 @@ from pyTigerGraph.common.exception import TigerGraphException
 
 class GetVertexCountToolInput(BaseModel):
     """Input schema for getting vertex count."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     vertex_type: Optional[str] = Field(None, description="Type of vertices to count. If not provided, counts all types.")
 
 
 class GetEdgeCountToolInput(BaseModel):
     """Input schema for getting edge count."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     edge_type: Optional[str] = Field(None, description="Type of edges to count. If not provided, counts all types.")
 
 
 class GetNodeDegreeToolInput(BaseModel):
     """Input schema for getting node degree."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     vertex_type: str = Field(..., description="Type of the vertex.")
     vertex_id: str = Field(..., description="ID of the vertex.")

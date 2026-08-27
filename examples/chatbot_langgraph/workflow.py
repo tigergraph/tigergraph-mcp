@@ -1,6 +1,7 @@
 """LangGraph workflow for the TigerGraph chatbot."""
 
 import logging
+import os
 from pathlib import Path
 
 from dotenv import dotenv_values, load_dotenv
@@ -33,6 +34,12 @@ from .prompts import (
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 S3_ANONYMOUS_SOURCE_NAME = "s3_anonymous_source"
+
+# TigerGraph requires access.key and secret.key on every S3 data source and
+# rejects empty values, so they are supplied even for the public sample bucket,
+# where the anonymous credentials provider governs actual access.
+S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "anonymous")
+S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "anonymous")
 
 WELCOME_MESSAGE = (
     "**Welcome!** I'm your **TigerGraph Assistant** — here to help you design schemas, "
@@ -87,9 +94,12 @@ async def build_graph(
                         "`tigergraph__get_data_source`. If it does not exist "
                         "(error), create it using `tigergraph__create_data_source` "
                         f"with name='{S3_ANONYMOUS_SOURCE_NAME}', type='s3', "
-                        "config={{'file.reader.settings.fs.s3a.aws.credentials."
+                        f"config={{{{'access.key': '{S3_ACCESS_KEY}', "
+                        f"'secret.key': '{S3_SECRET_KEY}', "
+                        "'file.reader.settings.fs.s3a.aws.credentials."
                         "provider': 'org.apache.hadoop.fs.s3a."
-                        "AnonymousAWSCredentialsProvider'}}."
+                        "AnonymousAWSCredentialsProvider'}}. TigerGraph requires "
+                        "both access.key and secret.key to be present and non-empty."
                     ),
                 ]
             }

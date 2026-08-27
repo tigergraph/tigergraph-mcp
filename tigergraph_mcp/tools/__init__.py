@@ -10,8 +10,10 @@
 from .connection_tools import (
     list_connections_tool,
     show_connection_tool,
+    authenticate_tool,
     list_connections,
     show_connection,
+    authenticate,
 )
 from .schema_tools import (
     # Global schema operations (database level)
@@ -79,6 +81,8 @@ from .query_tools import (
     drop_query_tool,
     show_query_tool,
     get_query_metadata_tool,
+    update_query_description_tool,
+    get_query_description_tool,
     is_query_installed_tool,
     get_neighbors_tool,
     run_query,
@@ -87,6 +91,8 @@ from .query_tools import (
     drop_query,
     show_query,
     get_query_metadata,
+    update_query_description,
+    get_query_description,
     is_query_installed,
     get_neighbors,
 )
@@ -150,6 +156,7 @@ from .datasource_tools import (
     get_all_data_sources_tool,
     drop_all_data_sources_tool,
     preview_sample_data_tool,
+    get_data_source_types_tool,
     create_data_source,
     update_data_source,
     get_data_source,
@@ -157,6 +164,7 @@ from .datasource_tools import (
     get_all_data_sources,
     drop_all_data_sources,
     preview_sample_data,
+    get_data_source_types,
 )
 from .discovery_tools import (
     discover_tools_tool,
@@ -172,8 +180,10 @@ __all__ = [
     # Connection profile operations
     "list_connections_tool",
     "show_connection_tool",
+    "authenticate_tool",
     "list_connections",
     "show_connection",
+    "authenticate",
     # Global schema operations (database level)
     "get_global_schema_tool",
     "get_global_schema",
@@ -236,6 +246,8 @@ __all__ = [
     "drop_query_tool",
     "show_query_tool",
     "get_query_metadata_tool",
+    "update_query_description_tool",
+    "get_query_description_tool",
     "is_query_installed_tool",
     "get_neighbors_tool",
     "run_query",
@@ -244,6 +256,8 @@ __all__ = [
     "drop_query",
     "show_query",
     "get_query_metadata",
+    "update_query_description",
+    "get_query_description",
     "is_query_installed",
     "get_neighbors",
     # Loading job tools
@@ -301,6 +315,7 @@ __all__ = [
     "get_all_data_sources_tool",
     "drop_all_data_sources_tool",
     "preview_sample_data_tool",
+    "get_data_source_types_tool",
     "create_data_source",
     "update_data_source",
     "get_data_source",
@@ -308,6 +323,7 @@ __all__ = [
     "get_all_data_sources",
     "drop_all_data_sources",
     "preview_sample_data",
+    "get_data_source_types",
     # Discovery tools
     "discover_tools_tool",
     "get_workflow_tool",
