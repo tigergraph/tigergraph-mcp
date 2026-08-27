@@ -13,6 +13,28 @@ from mcp.types import Tool, TextContent
 
 from ..tool_names import TigerGraphToolName
 from ..connection_manager import get_connection
+from .datasource_types import (
+    DATA_SOURCE_TYPES,
+    DOC_URL,
+    describe_all,
+    find_spec,
+    guidance,
+    normalize_type,
+    redact,
+)
+
+
+def _type_field_description() -> str:
+    """Build the data_source_type description from the registry."""
+    entries = ", ".join(
+        f"'{spec.type_value}' ({spec.label})" for spec in DATA_SOURCE_TYPES.values()
+    )
+    return (
+        f"Type of data source, normally one of: {entries}. "
+        "'azure_blob' is accepted as an alias for 'abs'. Any other value is "
+        "passed to TigerGraph unchanged, which decides whether it is valid. "
+        "Call 'get_data_source_types' for the configuration keys each type needs."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -21,50 +43,85 @@ from ..connection_manager import get_connection
 
 class CreateDataSourceToolInput(BaseModel):
     """Input schema for creating a data source."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     data_source_name: str = Field(..., description="Name of the data source.")
-    data_source_type: str = Field(..., description="Type of data source: 's3', 'gcs', 'azure_blob', or 'local'.")
-    config: Dict[str, Any] = Field(..., description="Configuration for the data source (e.g., bucket, credentials).")
+    data_source_type: str = Field(..., description=_type_field_description())
+    config: Dict[str, Any] = Field(
+        ...,
+        description=(
+            "Configuration for the data source, without the 'type' key. Key "
+            "names are type-specific: Snowflake takes 'connection.url', "
+            "'connection.user', and 'connection.password'; S3 takes 'access.key' "
+            "and 'secret.key'. "
+            "Call 'get_data_source_types' for each type's required keys and an example."
+        ),
+    )
 
 
 class UpdateDataSourceToolInput(BaseModel):
     """Input schema for updating a data source."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     data_source_name: str = Field(..., description="Name of the data source to update.")
     config: Dict[str, Any] = Field(..., description="Updated configuration for the data source.")
+    data_source_type: Optional[str] = Field(
+        None,
+        description=(
+            "Type of the data source. Optional; when given, the configuration is "
+            "validated against that type before the update is sent."
+        ),
+    )
 
 
 class GetDataSourceToolInput(BaseModel):
     """Input schema for getting a data source."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     data_source_name: str = Field(..., description="Name of the data source.")
 
 
 class DropDataSourceToolInput(BaseModel):
     """Input schema for dropping a data source."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     data_source_name: str = Field(..., description="Name of the data source to drop.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
 
 
 class GetAllDataSourcesToolInput(BaseModel):
     """Input schema for getting all data sources."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
 
 
 class DropAllDataSourcesToolInput(BaseModel):
     """Input schema for dropping all data sources."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     confirm: bool = Field(False, description="Must be True to confirm dropping all data sources.")
 
 
 class PreviewSampleDataToolInput(BaseModel):
     """Input schema for previewing sample data."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     data_source_name: str = Field(..., description="Name of the data source.")
-    file_path: str = Field(..., description="Path to the file within the data source.")
+    file_path: str = Field(
+        ...,
+        description=(
+            "For an object store source, the path to the file within the data "
+            "source (e.g. 's3a://bucket/data.csv'). For a warehouse source "
+            "such as Snowflake, the SQL query to sample instead "
+            "(e.g. 'SELECT * FROM <db>.<schema>.<table>')."
+        ),
+    )
     num_rows: int = Field(10, description="Number of sample rows to preview.")
     graph_name: Optional[str] = Field(None, description="Name of the graph context. If not provided, uses default connection.")
+
+
+class GetDataSourceTypesToolInput(BaseModel):
+    """Input schema for listing supported data source types."""
+    family: Optional[str] = Field(
+        None,
+        description=(
+            "Optional filter: 'object_store', 'warehouse', 'stream', or 'filesystem'. "
+            "Omit to list every type."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -73,8 +130,25 @@ class PreviewSampleDataToolInput(BaseModel):
 
 create_data_source_tool = Tool(
     name=TigerGraphToolName.CREATE_DATA_SOURCE,
-    description="Create a new data source for loading data (S3, GCS, Azure Blob, or local).",
+    description=(
+        "Create a new data source for loading data from object storage "
+        "(S3, GCS, Azure Blob), a data warehouse (Snowflake, BigQuery, "
+        "PostgreSQL), an Iceberg catalog, or Kafka. "
+        "Call 'get_data_source_types' first if unsure which keys a type needs; "
+        "if the server rejects the request, the response includes the keys that "
+        "type requires."
+    ),
     inputSchema=CreateDataSourceToolInput.model_json_schema(),
+)
+
+get_data_source_types_tool = Tool(
+    name=TigerGraphToolName.GET_DATA_SOURCE_TYPES,
+    description=(
+        "List the data source types supported by 'create_data_source', with the "
+        "required and optional configuration keys and an example config for each. "
+        "Answers locally without contacting TigerGraph."
+    ),
+    inputSchema=GetDataSourceTypesToolInput.model_json_schema(),
 )
 
 update_data_source_tool = Tool(
@@ -124,29 +198,58 @@ async def create_data_source(
     config: Dict[str, Any],
     profile: Optional[str] = None,
 ) -> List[TextContent]:
-    """Create a new data source."""
+    """Create a new data source.
+
+    The type and config are forwarded to TigerGraph as given; the server is the
+    authority on what it accepts. If it refuses, the local type registry is used
+    to explain what the type usually needs.
+    """
     from ..response_formatter import format_success, format_error
+
+    type_value = normalize_type(data_source_type)
+    spec = find_spec(type_value)
+    # An explicit 'type' inside config must not silently override the argument.
+    config = {k: v for k, v in config.items() if k != "type"}
+    full_config = {"type": type_value, **config}
 
     try:
         conn = get_connection(profile=profile)
-        full_config = {"type": data_source_type.lower(), **config}
         result = await conn.createDataSource(dsName=data_source_name, config=full_config)
         result_str = result.get("message", str(result))
 
+        follow_up = [f"View data source: get_data_source(data_source_name='{data_source_name}')"]
+        if spec is not None and spec.family in ("warehouse", "lakehouse"):
+            follow_up += [
+                "Preview rows: preview_sample_data(data_source_name="
+                f"'{data_source_name}', file_path='SELECT * FROM <db>.<schema>.<table>')",
+                "Load with a query: create_loading_job(files=[{'file_alias': 'f1', "
+                f"'data_source': '{data_source_name}', 'query': 'SELECT ...', ...}}])",
+            ]
+        else:
+            follow_up.append("List all data sources: get_all_data_sources()")
+
         return format_success(
             operation="create_data_source",
-            summary=f"Data source '{data_source_name}' of type '{data_source_type}' created successfully",
-            data={"data_source_name": data_source_name, "result": result_str},
-            suggestions=[
-                f"View data source: get_data_source(data_source_name='{data_source_name}')",
-                "List all data sources: get_all_data_sources()",
-            ],
+            summary=f"Data source '{data_source_name}' of type '{type_value}' created successfully",
+            data={
+                "data_source_name": data_source_name,
+                "data_source_type": type_value,
+                "config": redact(type_value, full_config),
+                "result": result_str,
+            },
+            suggestions=follow_up,
+            metadata={"data_source_family": spec.family if spec else "unknown"},
         )
     except Exception as e:
         return format_error(
             operation="create_data_source",
             error=e,
-            context={"data_source_name": data_source_name},
+            context={
+                "data_source_name": data_source_name,
+                "data_source_type": type_value,
+                "config": redact(type_value, config),
+            },
+            suggestions=guidance(type_value, config),
         )
 
 
@@ -154,9 +257,18 @@ async def update_data_source(
     data_source_name: str,
     config: Dict[str, Any],
     profile: Optional[str] = None,
+    data_source_type: Optional[str] = None,
 ) -> List[TextContent]:
-    """Update an existing data source."""
+    """Update an existing data source.
+
+    Like create, the configuration is forwarded as given and the server decides.
+    """
     from ..response_formatter import format_success, format_error
+
+    declared_type = data_source_type or config.get("type")
+    type_value = normalize_type(declared_type) if declared_type else None
+    if type_value:
+        config = {"type": type_value, **{k: v for k, v in config.items() if k != "type"}}
 
     try:
         conn = get_connection(profile=profile)
@@ -166,13 +278,27 @@ async def update_data_source(
         return format_success(
             operation="update_data_source",
             summary=f"Data source '{data_source_name}' updated successfully",
-            data={"data_source_name": data_source_name, "result": result_str},
+            data={
+                "data_source_name": data_source_name,
+                "config": redact(type_value, config),
+                "result": result_str,
+            },
         )
     except Exception as e:
+        hints = ["An update replaces the whole configuration, so every required "
+                 "key must be present even if unchanged."]
+        if type_value:
+            hints += guidance(type_value, {k: v for k, v in config.items() if k != "type"})
+        else:
+            hints.append(
+                "Pass data_source_type to get type-specific guidance, or call "
+                "get_data_source_types()."
+            )
         return format_error(
             operation="update_data_source",
             error=e,
             context={"data_source_name": data_source_name},
+            suggestions=hints,
         )
 
 
@@ -190,7 +316,8 @@ async def get_data_source(
         return format_success(
             operation="get_data_source",
             summary=f"Data source '{data_source_name}' details",
-            data={"data_source_name": data_source_name, "details": result},
+            data={"data_source_name": data_source_name, "details": redact(None, result)},
+            metadata={"credentials_redacted": True},
         )
     except Exception as e:
         return format_error(
@@ -242,8 +369,12 @@ async def get_all_data_sources(
         return format_success(
             operation="get_all_data_sources",
             summary="All data sources retrieved",
-            data={"details": result},
-            suggestions=["Create a data source: create_data_source(...)"],
+            data={"details": redact(None, result)},
+            suggestions=[
+                "Create a data source: create_data_source(...)",
+                "See supported types and their keys: get_data_source_types()",
+            ],
+            metadata={"credentials_redacted": True},
         )
     except Exception as e:
         return format_error(
@@ -334,3 +465,36 @@ async def preview_sample_data(
             error=e,
             context={"data_source_name": data_source_name, "file_path": file_path},
         )
+
+
+async def get_data_source_types(
+    family: Optional[str] = None,
+    **kwargs,
+) -> List[TextContent]:
+    """List supported data source types and their configuration keys."""
+    from ..response_formatter import format_success, format_error
+
+    families = sorted({spec.family for spec in DATA_SOURCE_TYPES.values()})
+    if family is not None and family not in families:
+        return format_error(
+            operation="get_data_source_types",
+            error=ValueError(f"Unknown family '{family}'"),
+            context={"family": family},
+            suggestions=[f"Valid families: {', '.join(families)}"],
+        )
+
+    types = describe_all(family)
+    return format_success(
+        operation="get_data_source_types",
+        summary=(
+            f"{len(types)} data source type(s) supported"
+            + (f" in family '{family}'" if family else "")
+        ),
+        data={"types": types, "families": families},
+        suggestions=[
+            "Create one: create_data_source(data_source_name=..., "
+            "data_source_type=..., config={...})",
+            f"Reference: {DOC_URL}",
+        ],
+        metadata={"source": "local registry", "server_round_trip": False},
+    )

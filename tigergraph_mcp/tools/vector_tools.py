@@ -30,7 +30,7 @@ from ..connection_manager import get_connection
 
 class VectorAddAttributeToolInput(BaseModel):
     """Input schema for adding a vector attribute to a vertex type."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     vertex_type: str = Field(..., description="Name of the vertex type to add the vector attribute to.")
     vector_name: str = Field(..., description="Name of the vector attribute.")
@@ -40,7 +40,7 @@ class VectorAddAttributeToolInput(BaseModel):
 
 class VectorDropAttributeToolInput(BaseModel):
     """Input schema for dropping a vector attribute from a vertex type."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     vertex_type: str = Field(..., description="Name of the vertex type.")
     vector_name: str = Field(..., description="Name of the vector attribute to drop.")
@@ -48,14 +48,14 @@ class VectorDropAttributeToolInput(BaseModel):
 
 class VectorListAttributesToolInput(BaseModel):
     """Input schema for listing vector attributes in a graph."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     vertex_type: Optional[str] = Field(None, description="Filter by vertex type. If not provided, returns vector attributes for all vertex types.")
 
 
 class VectorIndexStatusToolInput(BaseModel):
     """Input schema for checking vector index status."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     vertex_type: Optional[str] = Field(None, description="Vertex type to check. If not provided, checks all.")
     vector_name: Optional[str] = Field(None, description="Vector attribute name. If not provided, checks all.")
@@ -67,7 +67,7 @@ class VectorIndexStatusToolInput(BaseModel):
 
 class VectorLoadFromCsvToolInput(BaseModel):
     """Input schema for bulk-loading vectors from a CSV/delimited file via a GSQL loading job."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     vertex_type: str = Field(..., description="Target vertex type that has the vector attribute.")
     vector_attribute: str = Field(..., description="Name of the vector attribute to load into.")
@@ -81,7 +81,7 @@ class VectorLoadFromCsvToolInput(BaseModel):
 
 class VectorLoadFromJsonToolInput(BaseModel):
     """Input schema for bulk-loading vectors from a JSON Lines file via a GSQL loading job."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     vertex_type: str = Field(..., description="Target vertex type that has the vector attribute.")
     vector_attribute: str = Field(..., description="Name of the vector attribute to load into.")
@@ -104,7 +104,7 @@ class VectorData(BaseModel):
 
 class VectorUpsertToolInput(BaseModel):
     """Input schema for upserting multiple vectors via REST API."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     vertex_type: str = Field(..., description="Type of the vertices.")
     vector_attribute: str = Field(..., description="Name of the vector attribute.")
@@ -113,7 +113,7 @@ class VectorUpsertToolInput(BaseModel):
 
 class VectorSearchToolInput(BaseModel):
     """Input schema for vector similarity search using vectorSearch() function."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     vertex_type: str = Field(..., description="Type of vertices to search.")
     vector_attribute: str = Field(..., description="Name of the vector attribute to search.")
@@ -125,7 +125,7 @@ class VectorSearchToolInput(BaseModel):
 
 class VectorFetchToolInput(BaseModel):
     """Input schema for fetching vertices with their vector data using GSQL."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     vertex_type: str = Field(..., description="Type of the vertex.")
     vertex_ids: List[Union[str, int]] = Field(..., description="List of vertex IDs to fetch.")

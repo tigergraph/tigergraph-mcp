@@ -5,15 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.0] - 2026-06-02
+## [1.0.2] - 2026-08-26
 
 ### Added
 
-- **HTTP/SSE transport for multi-user deployments** — new `--transport stdio|streamable-http|sse` CLI flag plus `--host`, `--port`, and `--mount-path` options. HTTP modes serve many users from one process; each MCP session owns its own TigerGraph connection so concurrent users stay isolated.
-- **Header-based authentication for HTTP/SSE** — clients pass `X-TG-Host` plus credentials (`X-TG-Api-Token`, `X-TG-Jwt-Token`, or `X-TG-Username` + `X-TG-Password`) on every request. The MCP server validates against TigerGraph and returns `401 Unauthorized` on failure, so the MCP client sees a connection failure immediately rather than a tool failure.
-- **`authenticate` tool** — registers (or replaces) the active session's TigerGraph credentials from inside an MCP conversation. Useful for switching to a different TigerGraph instance or user mid-session.
-- **`update_query_description` / `get_query_description` tools** — wrap pyTigerGraph's `updateQueryDescription` / `getQueryDescription` (TigerGraph 4.0+) so agents can attach and read human-readable descriptions for installed queries and their parameters.
-- **`examples/multi_user_backend/` reference** — FastAPI service that demonstrates the "one tigergraph-mcp subprocess + one agent per logged-in user" pattern with idle-session sweeper, per-user request lock, and session caps.
+- **HTTP/SSE transport for multi-user deployments** — new `--transport stdio|streamable-http|sse` flag plus `--host`, `--port`, and `--mount-path`. One process serves many users, each MCP session owning its own TigerGraph connections so concurrent users stay isolated. Requires `uvicorn` and `starlette`.
+- **Per-request credentials for HTTP/SSE** — clients send `X-TG-*` headers. The server reads the same env file and `TG_*` / `<PROFILE>_TG_*` profiles as stdio for topology and optional credentials; `X-TG-Profile` selects a profile and the other headers override its values for that session. Credentials are checked against TigerGraph when a session's connection is established, and a rejected credential never establishes a session. Failures are reported by kind: `400` when the request does not describe a reachable server, `401` for missing or rejected credentials, `502` when the server cannot be reached. `TG_HTTP_ALLOWED_PROFILES`, `TG_HTTP_VALIDATE_TIMEOUT`, and `TG_HTTP_SESSION_IDLE_TIMEOUT` tune which profiles may be named, how long the reachability check waits, and when idle session pools are reclaimed.
+- **`authenticate` tool** — re-points one of the session's connections at a TigerGraph instance from inside an MCP conversation. Omitting `profile` replaces the default profile's connection; naming one replaces only that profile, leaving the session's others untouched. The credentials are checked against TigerGraph before the swap, so a bad one is reported immediately and the existing connection is left in place. HTTP/SSE only.
+- **`update_query_description` / `get_query_description` tools** — attach and read human-readable descriptions for installed queries and their parameters (TigerGraph 4.0+).
+- **`get_data_source_types` tool** — lists every supported data source type with its required and optional configuration keys and a worked example, so the configuration shape does not have to be guessed.
+- **Data warehouse and lakehouse data sources** — `create_data_source` now accepts `snowflake`, `bigquery`, `postgresql`, `iceberg`, `kafka_v2`, and `mirrormaker` alongside the object store and Kafka types. Each takes a different configuration shape, so a rejected request comes back with the keys that type needs and an example.
+- **Loading jobs can read from a data source query** — a file entry may name a `data_source` and a `query` instead of a `file_path`, loading the result of a SQL query against a warehouse.
+- **`examples/multi_user_backend/` reference** — FastAPI service demonstrating one `tigergraph-mcp` subprocess and one agent per logged-in user, with an idle-session sweeper, per-user request lock, and session caps.
+
+### Changed
+
+- **Data source configuration keys now match what TigerGraph requires.** Several documented keys were wrong: Google Cloud Storage keys are dot-separated (`project.id`, `client.email`, `private.key.id`, `private.key`), Azure Blob takes `client.id` / `client.secret` / `tenant.id`, and Kafka takes `bootstrap.servers`. S3 requires both `access.key` and `secret.key`, including for public buckets; PostgreSQL's `port` and `db.name` are optional.
+- **Data source credentials are masked in tool responses.** Reads previously returned whatever the server sent, which on TigerGraph 4.x includes stored secrets.
+- **`TG_DEFAULT_PROFILE` names the default profile**, with `TG_PROFILE` kept as an alias. Omitting a tool's `profile` argument and passing `"default"` now resolve identically — to that profile, or to the unprefixed `TG_*` variables when it is unset.
+- **Python 3.13 and 3.14 are supported and tested.** The minimum stays at 3.10.
+- **Both the 1.x and 2.x MCP SDKs are supported.** The 2.0 SDK replaced the handler decorators with constructor callbacks; the server detects which API the installed SDK provides, so upgrading the SDK no longer breaks startup.
+
+### Fixed
+
+- **`azure_blob` reached the server as an unsupported type**, so creating an Azure Blob data source always failed. TigerGraph's type is `abs`, and `azure_blob` is now translated to it.
+- A `type` key inside `config` no longer overrides the `data_source_type` argument when creating a data source.
+- `authenticate` registers its credentials under whichever profile is the default, so a tool call that omits `profile` uses them. It previously always wrote to a profile literally named `default`, which had no effect when `TG_DEFAULT_PROFILE` named another one.
+
+### Removed
+
+- `local` is no longer listed as a data source type. TigerGraph does not accept it — local files are loaded with `run_loading_job_with_file`. Passing it still reaches the server, which reports the types it supports.
 
 ## [1.0.1] - 2026-05-19
 

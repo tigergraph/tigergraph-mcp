@@ -76,14 +76,14 @@ def get_llm_config() -> Tuple[str, str]:
 
 class GSQLToolInput(BaseModel):
     """Input schema for running GSQL command."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     command: str = Field(..., description="GSQL command to execute.")
 
 
 class GenerateGSQLToolInput(BaseModel):
     """Input schema for generating GSQL from natural language."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     query_description: str = Field(
         ..., 
         description="A natural language description of what data you want to retrieve. Examples: 'Find all users who purchased more than 5 items', 'Count vertices by type', 'Find shortest path between two nodes'"
@@ -96,7 +96,7 @@ class GenerateGSQLToolInput(BaseModel):
 
 class GenerateCypherToolInput(BaseModel):
     """Input schema for generating Cypher from natural language."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     query_description: str = Field(
         ..., 
         description="A natural language description of what data you want to retrieve. Examples: 'Find all users who purchased more than 5 items', 'Find friends of friends', 'Match patterns in the graph'"

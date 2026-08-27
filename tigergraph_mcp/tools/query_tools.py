@@ -20,7 +20,7 @@ from pyTigerGraph.common.exception import TigerGraphException
 
 class RunQueryToolInput(BaseModel):
     """Input schema for running an interpreted query."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     query_text: str = Field(
         ..., 
@@ -37,7 +37,7 @@ class RunQueryToolInput(BaseModel):
 
 class RunInstalledQueryToolInput(BaseModel):
     """Input schema for running an installed query."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     query_name: str = Field(..., description="Name of the installed query.")
     params: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Query parameters.")
@@ -45,28 +45,28 @@ class RunInstalledQueryToolInput(BaseModel):
 
 class InstallQueryToolInput(BaseModel):
     """Input schema for installing a query."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     query_text: str = Field(..., description="GSQL query text to install.")
 
 
 class ShowQueryToolInput(BaseModel):
     """Input schema for showing a query."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     query_name: str = Field(..., description="Name of the query to show.")
 
 
 class GetQueryMetadataToolInput(BaseModel):
     """Input schema for getting query metadata."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     query_name: str = Field(..., description="Name of the query.")
 
 
 class UpdateQueryDescriptionToolInput(BaseModel):
     """Input schema for setting a query's description and parameter descriptions."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     query_name: str = Field(..., description="Name of the installed query to describe.")
     query_description: str = Field(..., description="Human-readable description of what the query does.")
@@ -78,28 +78,28 @@ class UpdateQueryDescriptionToolInput(BaseModel):
 
 class GetQueryDescriptionToolInput(BaseModel):
     """Input schema for reading a query's description and parameter descriptions."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     query_name: str = Field("all", description="Name of the query to read. Pass 'all' (default) to read descriptions for every query.")
 
 
 class DropQueryToolInput(BaseModel):
     """Input schema for dropping a query."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     query_name: str = Field(..., description="Name of the query to drop.")
 
 
 class IsQueryInstalledToolInput(BaseModel):
     """Input schema for checking if a query is installed."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     query_name: str = Field(..., description="Name of the query to check.")
 
 
 class GetNeighborsToolInput(BaseModel):
     """Input schema for getting neighbors of a node."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     vertex_type: str = Field(..., description="Type of the source vertex (e.g., 'Person', 'Product').")
     vertex_id: str = Field(..., description="ID of the source vertex.")

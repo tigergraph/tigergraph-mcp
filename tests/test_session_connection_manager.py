@@ -10,13 +10,23 @@ import os
 import unittest
 from unittest import mock
 
+from pyTigerGraph import AsyncTigerGraphConnection
+
 from tigergraph_mcp.connection_manager import (
     ConnectionManager,
     SessionConnectionManager,
     get_active_manager,
     get_connection,
+    reset_pending_credentials,
+    resolve_profile_name,
+    set_pending_credentials,
     use_session_manager,
 )
+
+
+def _conn(host: str = "http://tg.example") -> AsyncTigerGraphConnection:
+    """A connection object stand-in; constructing one contacts nothing."""
+    return AsyncTigerGraphConnection(host=host, username="u", password="p")
 
 
 class TestSessionConnectionManagerBasics(unittest.TestCase):
@@ -50,14 +60,76 @@ class TestSessionConnectionManagerBasics(unittest.TestCase):
 
     def test_get_connection_for_profile_caches(self):
         cm = SessionConnectionManager()
+        cm.register_connection("default", _conn())
         conn1 = cm.get_connection_for_profile("default")
         conn2 = cm.get_connection_for_profile("default")
         self.assertIs(conn1, conn2)
 
     def test_default_profile_sets_default_connection(self):
         cm = SessionConnectionManager()
-        conn = cm.get_connection_for_profile("default")
+        conn = _conn()
+        cm.register_connection("default", conn)
         self.assertIs(cm.get_default_connection(), conn)
+
+    def test_undefined_profile_is_refused(self):
+        cm = SessionConnectionManager()
+        with self.assertRaises(ValueError) as ctx:
+            cm.get_connection_for_profile("nosuchprofile")
+        self.assertIn("Unknown profile", str(ctx.exception))
+
+    @mock.patch.dict(
+        os.environ,
+        {"REPORTS_TG_HOST": "https://reports.example.com"},
+        clear=False,
+    )
+    def test_profile_with_no_credentials_anywhere_is_refused(self):
+        # A profile inherits the unprefixed credentials; with none configured
+        # anywhere there is no identity to connect as.
+        with mock.patch.dict(os.environ, {"TG_USERNAME": "", "TG_PASSWORD": "",
+                                          "TG_API_TOKEN": "", "TG_JWT_TOKEN": ""}):
+            cm = SessionConnectionManager()
+            with self.assertRaises(ValueError) as ctx:
+                cm.get_connection_for_profile("reports")
+        self.assertIn("defines no credentials", str(ctx.exception))
+
+    @mock.patch.dict(
+        os.environ,
+        {
+            "REPORTS_TG_HOST": "https://reports.example.com",
+            "REPORTS_TG_USERNAME": "reader",
+            "REPORTS_TG_PASSWORD": "pw",
+        },
+        clear=False,
+    )
+    def test_named_profile_opens_lazily_in_the_session(self):
+        # Naming a configured profile creates that connection inside this
+        # session's own pool, as it does for a stdio process.
+        cm = SessionConnectionManager()
+        cm.register_connection("demo", _conn("http://demo.tg"))
+        conn = cm.get_connection_for_profile("reports")
+        self.assertEqual(conn.host, "https://reports.example.com")
+        self.assertEqual(sorted(cm._connection_pool), ["demo", "reports"])
+
+    @mock.patch.dict(
+        os.environ,
+        {
+            "REPORTS_TG_HOST": "https://reports.example.com",
+            "REPORTS_TG_USERNAME": "reader",
+            "REPORTS_TG_PASSWORD": "pw",
+        },
+        clear=False,
+    )
+    def test_opening_a_named_profile_keeps_the_established_connection(self):
+        cm = SessionConnectionManager()
+        demo = _conn("http://demo.tg")
+        cm.register_connection("demo", demo)
+        cm.get_connection_for_profile("reports")
+        self.assertIs(cm.get_default_connection(), demo)
+
+    def test_registering_does_not_touch_the_class_pool(self):
+        cm = SessionConnectionManager()
+        cm.register_connection("default", _conn())
+        self.assertNotIn("default", ConnectionManager._connection_pool)
 
     def test_set_default_connection(self):
         cm = SessionConnectionManager()
@@ -75,6 +147,8 @@ class TestMultiInstanceIsolation(unittest.TestCase):
     def test_two_sessions_do_not_share_pool(self):
         cm_a = SessionConnectionManager()
         cm_b = SessionConnectionManager()
+        cm_a.register_connection("default", _conn())
+        cm_b.register_connection("default", _conn())
         conn_a = cm_a.get_connection_for_profile("default")
         conn_b = cm_b.get_connection_for_profile("default")
         self.assertIsNot(conn_a, conn_b)
@@ -86,7 +160,8 @@ class TestMultiInstanceIsolation(unittest.TestCase):
         class_conn = ConnectionManager.get_connection_for_profile("default")
         # Populate a session pool.
         cm = SessionConnectionManager()
-        session_conn = cm.get_connection_for_profile("default")
+        session_conn = _conn()
+        cm.register_connection("default", session_conn)
         self.assertIsNot(class_conn, session_conn)
         # Session default connection should not leak to the class default.
         self.assertIs(ConnectionManager.get_default_connection(), class_conn)
@@ -112,6 +187,7 @@ class TestActiveManagerResolution(unittest.TestCase):
 
     def test_get_connection_uses_session_pool_when_bound(self):
         cm = SessionConnectionManager()
+        cm.register_connection("default", _conn())
         with use_session_manager(cm):
             conn = get_connection(profile="default")
         # The connection must be in the session pool, not in the class pool.
@@ -134,6 +210,89 @@ class TestActiveManagerResolution(unittest.TestCase):
         self.assertIs(get_active_manager(), ConnectionManager)
 
 
+class TestSessionProfileArgument(unittest.TestCase):
+    """How a tool's ``profile=`` argument resolves inside an HTTP session."""
+
+    def setUp(self):
+        ConnectionManager._connection_pool = {}
+        ConnectionManager._default_connection = None
+        self.cm = SessionConnectionManager()
+        self.conn = _conn("http://demo.tg")
+        self.cm.register_connection("demo", self.conn)
+        token = set_pending_credentials({"profile": "demo"})
+        self.addCleanup(reset_pending_credentials, token)
+
+    @mock.patch.dict(os.environ, {"TG_DEFAULT_PROFILE": "demo"}, clear=False)
+    def test_omitted_profile_uses_the_servers_default_profile(self):
+        with use_session_manager(self.cm):
+            self.assertIs(get_connection(), self.conn)
+
+    @mock.patch.dict(os.environ, {"TG_DEFAULT_PROFILE": "demo"}, clear=False)
+    def test_explicit_default_resolves_the_same_way(self):
+        with use_session_manager(self.cm):
+            self.assertIs(get_connection(profile="default"), self.conn)
+
+    def test_naming_the_request_profile_works(self):
+        with use_session_manager(self.cm):
+            self.assertIs(get_connection(profile="demo"), self.conn)
+
+    def test_naming_an_undefined_profile_is_refused(self):
+        with use_session_manager(self.cm):
+            with self.assertRaises(ValueError):
+                get_connection(profile="nosuchprofile")
+
+    @mock.patch.dict(
+        os.environ,
+        {
+            "REPORTS_TG_HOST": "https://reports.example.com",
+            "REPORTS_TG_USERNAME": "reader",
+            "REPORTS_TG_PASSWORD": "pw",
+        },
+        clear=False,
+    )
+    def test_naming_a_configured_profile_opens_it(self):
+        with use_session_manager(self.cm):
+            conn = get_connection(profile="reports")
+        self.assertEqual(conn.host, "https://reports.example.com")
+        # ...without displacing the session's default.
+        self.assertIs(get_connection.__wrapped__ if False else self.cm.get_default_connection(), self.conn)
+
+
+class TestDefaultProfileParity(unittest.TestCase):
+    """Which profile "default" means is a server setting, and both transports
+    must read it the same way."""
+
+    def resolve(self, profile, env):
+        with mock.patch.dict(os.environ, env, clear=False):
+            return resolve_profile_name(profile)
+
+    def test_unset_means_the_unprefixed_variables(self):
+        env = {"TG_DEFAULT_PROFILE": "", "TG_PROFILE": ""}
+        self.assertEqual(self.resolve(None, env), "default")
+        self.assertEqual(self.resolve("default", env), "default")
+
+    def test_tg_default_profile_selects_it(self):
+        env = {"TG_DEFAULT_PROFILE": "staging", "TG_PROFILE": ""}
+        self.assertEqual(self.resolve(None, env), "staging")
+        self.assertEqual(self.resolve("default", env), "staging")
+
+    def test_tg_profile_is_accepted_as_an_alias(self):
+        env = {"TG_DEFAULT_PROFILE": "", "TG_PROFILE": "staging"}
+        self.assertEqual(self.resolve(None, env), "staging")
+
+    def test_tg_default_profile_wins_over_the_alias(self):
+        env = {"TG_DEFAULT_PROFILE": "prod", "TG_PROFILE": "staging"}
+        self.assertEqual(self.resolve(None, env), "prod")
+
+    def test_a_named_profile_is_used_as_given(self):
+        env = {"TG_DEFAULT_PROFILE": "staging", "TG_PROFILE": ""}
+        self.assertEqual(self.resolve("prod", env), "prod")
+
+    def test_name_is_case_insensitive(self):
+        env = {"TG_DEFAULT_PROFILE": "", "TG_PROFILE": ""}
+        self.assertEqual(self.resolve("PROD", env), "prod")
+
+
 class TestActiveManagerUnderConcurrency(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         ConnectionManager._profiles = set()
@@ -145,6 +304,8 @@ class TestActiveManagerUnderConcurrency(unittest.IsolatedAsyncioTestCase):
         # active-manager ContextVar must keep them isolated.
         cm_a = SessionConnectionManager()
         cm_b = SessionConnectionManager()
+        cm_a.register_connection("default", _conn())
+        cm_b.register_connection("default", _conn())
         seen: dict[str, object] = {}
 
         async def task(name, cm):

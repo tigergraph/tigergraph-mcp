@@ -156,6 +156,7 @@ from .datasource_tools import (
     get_all_data_sources_tool,
     drop_all_data_sources_tool,
     preview_sample_data_tool,
+    get_data_source_types_tool,
     create_data_source,
     update_data_source,
     get_data_source,
@@ -163,6 +164,7 @@ from .datasource_tools import (
     get_all_data_sources,
     drop_all_data_sources,
     preview_sample_data,
+    get_data_source_types,
 )
 from .discovery_tools import (
     discover_tools_tool,
@@ -313,6 +315,7 @@ __all__ = [
     "get_all_data_sources_tool",
     "drop_all_data_sources_tool",
     "preview_sample_data_tool",
+    "get_data_source_types_tool",
     "create_data_source",
     "update_data_source",
     "get_data_source",
@@ -320,6 +323,7 @@ __all__ = [
     "get_all_data_sources",
     "drop_all_data_sources",
     "preview_sample_data",
+    "get_data_source_types",
     # Discovery tools
     "discover_tools_tool",
     "get_workflow_tool",

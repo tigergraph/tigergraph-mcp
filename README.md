@@ -14,9 +14,12 @@ Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact w
   - [Multi-user Deployments (HTTP/SSE)](#multi-user-deployments-httpsse)
   - [Using with Existing Connection](#using-with-existing-connection)
 - [Client Examples](#client-examples)
-  - [Using MultiServerMCPClient](#using-multiserverMCPclient)
-  - [Using MCP Client SDK Directly](#using-mcp-client-sdk-directly)
+  - [LangChain / LangGraph over stdio](#langchain--langgraph-over-stdio)
+  - [LangChain / LangGraph over HTTP](#langchain--langgraph-over-http)
+  - [MCP SDK over stdio](#mcp-sdk-over-stdio)
+  - [MCP SDK over HTTP](#mcp-sdk-over-http)
 - [Available Tools](#available-tools)
+- [Loading from a Data Warehouse](docs/warehouse_loading.md)
 - [LLM-Friendly Features](#llm-friendly-features)
   - [Structured Responses](#structured-responses)
   - [Rich Tool Descriptions](#rich-tool-descriptions)
@@ -26,7 +29,8 @@ Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact w
 
 ## Requirements
 
-- **Python 3.10, 3.11, or 3.12**
+- **Python 3.10 through 3.14**
+- **MCP SDK 1.x or 2.x** — either generation of the `mcp` package works.
 - **TigerGraph 4.1 or later** — Install from the [TigerGraph Downloads page](https://dl.tigergraph.com/) or use [TigerGraph Savanna](https://savanna.tgcloud.io/) for a managed cloud instance.
 
 > **Recommended: TigerGraph 4.2+** to enable TigerVector and advanced hybrid retrieval features.
@@ -51,6 +55,12 @@ This installs:
 - `pydantic>=2.0.0` — for data validation
 - `click` — for the CLI entry point
 - `python-dotenv>=1.0.0` — for loading `.env` files
+
+To serve over HTTP (`--transport streamable-http` or `sse`), also install a web stack:
+
+```bash
+pip install uvicorn starlette
+```
 
 To enable the `tigergraph__generate_gsql` and `tigergraph__generate_cypher` tools (LLM-powered query generation), install the optional `[llm]` extras (pip only):
 
@@ -126,14 +136,11 @@ tigergraph-mcp --transport streamable-http --host 0.0.0.0 --port 8000
 tigergraph-mcp --transport sse --host 0.0.0.0 --port 8000
 ```
 
-In HTTP modes each MCP session gets its own connection pool, so concurrent users don't share state. Clients connect at `http://<host>:<port>/mcp` (the mount path is configurable via `--mount-path`).
+Each MCP session gets its own connection pool, so concurrent users never share state. Clients connect at `http://<host>:<port>/mcp/` — **note the trailing slash**; `/mcp` returns a `307` redirect that some clients will not follow on `POST`. The mount path is configurable with `--mount-path`.
 
-Credentials per session come from one of two places:
+The server reads the same `.env` file and `TG_*` / `<PROFILE>_TG_*` variables as stdio, which supply each profile's topology and, optionally, its credentials. A client selects a profile with `X-TG-Profile` and may override any value with the other `X-TG-*` headers — see [Server-side profiles and header overrides](#server-side-profiles-and-header-overrides). With no headers at all, the default profile is used exactly as configured.
 
-1. The `authenticate` MCP tool (see [Multi-user Deployments](#multi-user-deployments-httpsse) below) — the client registers credentials as its first call.
-2. The same `TG_*` / `<PROFILE>_TG_*` env vars used by stdio — useful when every session should share one cluster.
-
-Authenticate the HTTP endpoint itself with a reverse proxy / API gateway when exposing it beyond localhost. The MCP server does not perform user authentication on its own.
+Authenticate the HTTP endpoint itself with a reverse proxy / API gateway when exposing it beyond localhost. The MCP server checks TigerGraph credentials, not who may reach the URL.
 
 ### Configuration
 
@@ -217,17 +224,19 @@ PROD_TG_TGCLOUD=true
 
 Profiles are discovered automatically at startup. Any variable matching `<PROFILE>_TG_HOST` registers a new profile. Values not set for a named profile fall back to the default profile's values.
 
-#### Selecting the active profile
+#### Selecting the default profile
 
 ```bash
 # Switch to staging for this run
-TG_PROFILE=staging tigergraph-mcp
+TG_DEFAULT_PROFILE=staging tigergraph-mcp
 
 # Or set permanently in .env
-TG_PROFILE=prod
+TG_DEFAULT_PROFILE=prod
 ```
 
-If `TG_PROFILE` is not set, the default profile is used.
+`TG_DEFAULT_PROFILE` names the profile used when a call does not specify one. If it is not set, the unprefixed `TG_*` variables are the default profile. `TG_PROFILE` is accepted as an alias.
+
+Omitting the `profile` argument and passing `profile="default"` mean the same thing — the default profile — in both stdio and HTTP mode.
 
 #### Switching profiles per call
 
@@ -271,22 +280,35 @@ Run one shared `tigergraph-mcp` HTTP server and let each logged-in user supply t
 
 #### Option 1 — Frontend backend owns the MCP client (recommended)
 
-Your web backend authenticates the user, opens an MCP session per login, calls `tigergraph__authenticate` once to register their TigerGraph credentials, then routes all subsequent agent traffic through that session. The LLM never sees credentials.
+Your web backend authenticates the user, opens one MCP session per login carrying that
+user's TigerGraph credentials as `X-TG-*` headers, and routes all of their agent traffic
+through that session. The LLM never sees credentials.
 
 ```text
-[user logs in]              backend validates the user (any IdP or
-                            passthrough TigerGraph auth) and mints a
-                            short-lived TigerGraph token.
-[per-user MCP session]      backend opens one MCPClient per user and
-                            invokes `tigergraph__authenticate(host=...,
-                            api_token=...)` as the session's first call.
-[agent traffic]              every subsequent tool call goes to the
-                            same session → same TigerGraph connection.
-[user logs out]             backend closes the MCPClient → MCP server
-                            drops the session's connection pool.
+[user logs in]         backend validates the user (any IdP, or passthrough
+                       TigerGraph auth) and mints a short-lived TG token.
+[per-user session]     backend opens one MCP session with that user's
+                       X-TG-* headers; the server validates them once and
+                       builds that session's connection.
+[agent traffic]        every tool call reuses the same session, and so the
+                       same pooled TigerGraph connection.
+[user logs out]        backend closes its client; the session's pool is
+                       reclaimed after TG_HTTP_SESSION_IDLE_TIMEOUT.
 ```
 
-A working reference lives in [`examples/multi_user_backend/`](examples/multi_user_backend/): a FastAPI service that does the above with subprocess-per-user (stdio). To use the shared HTTP server instead, point each user's `MultiServerMCPClient` at `streamable_http` with the URL of your tigergraph-mcp instance, and call `tigergraph__authenticate` instead of relying on env-var profiles.
+Hold the session open for the user's lifetime rather than calling `get_tools()` per
+request — see [Client Examples](#client-examples) for why.
+
+A working reference lives in [`examples/multi_user_backend/`](examples/multi_user_backend/):
+a FastAPI service that does this with subprocess-per-user over stdio. To use the shared
+HTTP server instead, point each user's `MultiServerMCPClient` at `streamable_http` with
+your server's URL and put that user's credentials in `headers`.
+
+The `authenticate` tool remains available for re-pointing a live session mid-conversation:
+omit `profile` to replace the session's default connection, or name one to replace just
+that profile. Credentials are checked before the swap, so a bad one is reported at once
+and the existing connection keeps working. It is not needed when credentials arrive as
+headers.
 
 #### Option 2 — Cursor / Copilot pointing at a remote MCP server
 
@@ -307,11 +329,47 @@ Each developer's `mcp.json` carries their own TigerGraph credentials as headers.
 }
 ```
 
-Recognised credential headers (mirror the `TG_*` env vars used in stdio mode):
+#### Server-side profiles and header overrides
+
+The HTTP server reads the same `.env` file and `TG_*` / `<PROFILE>_TG_*` variables as stdio (`--env-file`, or a `.env` discovered from the working directory). Profiles define **topology** — host, ports, graph, TLS — and may optionally carry credentials. A request selects one with `X-TG-Profile`, and any `X-TG-*` header overrides that profile's value **for that session only**:
+
+| Headers sent | Connection used |
+|---|---|
+| `X-TG-Profile` only | that profile's topology **and** its configured credentials |
+| `X-TG-Profile` + credential headers | that profile's topology, the caller's identity |
+| Credential headers only | the `default` profile's topology, the caller's identity |
+| No headers | the `default` profile exactly as configured |
+
+`TG_PROFILE` names which profile acts as the default for requests that don't send `X-TG-Profile`; unset, the unprefixed `TG_*` vars are the default profile. Naming a profile that isn't defined is an error rather than a silent fallback. `TG_HTTP_ALLOWED_PROFILES=demo,staging` narrows which profiles clients may name.
+
+A named profile uses its own credentials where it defines them, and the unprefixed `TG_*` ones where it does not — the same inheritance stdio uses. If no credentials are configured anywhere, every caller must supply their own.
+
+Whether profiles carry credentials at all is the operator's decision when writing the env file. Credentials in the env file are a shared identity usable by anyone who can reach the server, which suits a demo or single-user deployment; an env file with topology only forces every caller to identify itself, which is what you want for multi-user deployments.
+
+Within a session, a tool call may name any configured profile with its `profile` argument. That connection is opened in **that session's** pool and is never shared with other sessions — the same shape as a stdio process holding several profiles. Omitting `profile`, or passing `"default"`, resolves to the server's default profile, exactly as it does in stdio. A client normally sends no `X-TG-Profile` at all, which establishes the session on that default profile.
+
+Failures are reported by kind, so a caller can tell a wrong address from a wrong login:
+
+| Status | Meaning | Examples |
+|---|---|---|
+| `400` | Topology — the request does not describe a reachable server | unknown profile, no host resolvable |
+| `401` | Credentials — missing, or rejected by TigerGraph | no identity supplied, wrong password |
+| `502` | Connection — the server could not be reached | unroutable host, wrong port, timeout |
+
+The reachability probe is bounded by `TG_HTTP_VALIDATE_TIMEOUT` (default 10 seconds) so an unroutable host fails promptly instead of hanging the request.
+
+Idle sessions are reclaimed after `TG_HTTP_SESSION_IDLE_TIMEOUT` seconds (default 900; `0` keeps them for the life of the process), so pools do not accumulate when clients open many short-lived sessions. A reclaimed session is not broken — a later request rebuilds its pool.
+
+Credentials are checked against TigerGraph when the session's connection is established, not on every request — a client's headers are fixed for the life of its session, so re-checking proves nothing new. A rejected credential never establishes a session. Requests that cannot be resolved at all (unknown profile, no host) are refused without contacting TigerGraph.
+
+Access control to the endpoint itself remains the deployment's responsibility — put a reverse proxy or API gateway in front.
+
+Recognised headers (they mirror the `TG_*` env vars used in stdio mode):
 
 | Header | Env-var equivalent |
 |---|---|
-| `X-TG-Host` (required) | `TG_HOST` |
+| `X-TG-Profile` | selects a server-side profile (`<PROFILE>_TG_*`) |
+| `X-TG-Host` | `TG_HOST` |
 | `X-TG-Graphname` | `TG_GRAPHNAME` |
 | `X-TG-Username` + `X-TG-Password` | `TG_USERNAME` + `TG_PASSWORD` |
 | `X-TG-Secret` | `TG_SECRET` |
@@ -321,7 +379,7 @@ Recognised credential headers (mirror the `TG_*` env vars used in stdio mode):
 | `X-TG-Tgcloud` (`true`/`false`) | `TG_TGCLOUD` |
 | `X-TG-Cert-Path` | `TG_CERT_PATH` |
 
-`X-TG-Host` plus one of (`X-TG-Api-Token`, `X-TG-Jwt-Token`, `X-TG-Username` + `X-TG-Password`) is required; the rest are optional.
+A host and an identity must be resolvable from the selected profile, the headers, or a combination of the two; every header is otherwise optional.
 
 For per-call credential routing inside the agent's conversation, have the agent call `authenticate` once at session start:
 
@@ -351,13 +409,26 @@ async with AsyncTigerGraphConnection(
 
 ## Client Examples
 
-### Using MultiServerMCPClient
+> **Hold one session for the run.** `MultiServerMCPClient(...)` connects nothing, and
+> `await client.get_tools()` opens a session only to list the tools, then closes it —
+> the returned tools carry a connection *config*, so **each tool call opens a new
+> session**. Over stdio that spawns a `tigergraph-mcp` process per call; over HTTP it
+> creates a session, a connection, and a credential check per call. Binding tools to a
+> session held open by `client.session(...)` reuses one process (or one session and its
+> pooled connection) for the whole run — in a measured 8-call agent run, 1 session
+> instead of 9, and roughly 4× faster. Use `get_tools()` only for one-shot scripts.
+
+### LangChain / LangGraph over stdio
+
+The client starts `tigergraph-mcp` as a subprocess and passes credentials as env vars.
 
 ```python
-from langchain_mcp_adapters import MultiServerMCPClient
-from pathlib import Path
-from dotenv import dotenv_values
 import asyncio
+from pathlib import Path
+
+from dotenv import dotenv_values
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.tools import load_mcp_tools
 
 env_dict = dotenv_values(dotenv_path=Path(".env").expanduser().resolve())
 
@@ -372,20 +443,75 @@ client = MultiServerMCPClient(
     }
 )
 
-tools = asyncio.run(client.get_tools())
+
+async def main():
+    async with client.session("tigergraph-mcp-server") as session:
+        tools = await load_mcp_tools(session)
+        # ... run your agent here; every tool call reuses this session
+        print([t.name for t in tools])
+
+
+asyncio.run(main())
 ```
 
-### Using MCP Client SDK Directly
+### LangChain / LangGraph over HTTP
+
+The server is already running elsewhere; the client only connects. Credentials travel
+as headers, so nothing about TigerGraph needs to be configured on this side.
 
 ```python
 import asyncio
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
 
-async def call_tool():
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.tools import load_mcp_tools
+
+client = MultiServerMCPClient(
+    {
+        "tigergraph-mcp-server": {
+            "transport": "streamable_http",
+            "url": "http://localhost:8000/mcp/",   # trailing slash required
+            "headers": {
+                # Omit these entirely to use the server's default profile.
+                "X-TG-Profile": "staging",
+                "X-TG-Username": "my_user",
+                "X-TG-Password": "my_password",
+            },
+        },
+    }
+)
+
+
+async def main():
+    async with client.session("tigergraph-mcp-server") as session:
+        tools = await load_mcp_tools(session)
+        print([t.name for t in tools])
+
+
+asyncio.run(main())
+```
+
+### MCP SDK over stdio
+
+`stdio_client` does **not** pass your environment to the subprocess — it forwards only a
+minimal safe set (`HOME`, `PATH`, `SHELL`, …). Credentials must be supplied explicitly
+via `env`, or the server will fall back to its defaults and try `http://127.0.0.1`.
+
+```python
+import asyncio
+from pathlib import Path
+
+from dotenv import dotenv_values
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import get_default_environment, stdio_client
+
+env_dict = dotenv_values(dotenv_path=Path(".env").expanduser().resolve())
+
+
+async def main():
     server_params = StdioServerParameters(
         command="tigergraph-mcp",
         args=["-vv"],
+        env={**get_default_environment(), **env_dict},
     )
 
     async with stdio_client(server_params) as (read, write):
@@ -395,14 +521,50 @@ async def call_tool():
             tools = await session.list_tools()
             print(f"Available tools: {[t.name for t in tools.tools]}")
 
-            result = await session.call_tool(
-                "tigergraph__list_graphs",
-                arguments={}
-            )
+            result = await session.call_tool("tigergraph__list_graphs", arguments={})
             for content in result.content:
                 print(content.text)
 
-asyncio.run(call_tool())
+
+asyncio.run(main())
+```
+
+### MCP SDK over HTTP
+
+```python
+import asyncio
+
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
+
+URL = "http://localhost:8000/mcp/"          # trailing slash required
+HEADERS = {                                  # omit to use the default profile
+    "X-TG-Host": "http://my-tigergraph:14240",
+    "X-TG-Username": "my_user",
+    "X-TG-Password": "my_password",
+}
+
+
+async def main():
+    async with streamablehttp_client(URL, headers=HEADERS) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+
+            tools = await session.list_tools()
+            print(f"Available tools: {[t.name for t in tools.tools]}")
+
+            # Every call reuses this session's pooled connection.
+            result = await session.call_tool("tigergraph__list_graphs", arguments={})
+            for content in result.content:
+                print(content.text)
+
+            # Route one call to another configured profile.
+            result = await session.call_tool(
+                "tigergraph__list_graphs", arguments={"profile": "prod"}
+            )
+
+
+asyncio.run(main())
 ```
 
 ## Available Tools
@@ -442,7 +604,7 @@ asyncio.run(call_tool())
 - `tigergraph__get_neighbors`
 
 ### Loading Job Operations
-- `tigergraph__create_loading_job`
+- `tigergraph__create_loading_job` — from files, or from a `data_source` + `query` pair to load the result of a SQL query against a warehouse
 - `tigergraph__run_loading_job_with_file` / `tigergraph__run_loading_job_with_data`
 - `tigergraph__get_loading_jobs` / `tigergraph__get_loading_job_status`
 - `tigergraph__drop_loading_job`
@@ -469,7 +631,24 @@ asyncio.run(call_tool())
 - `tigergraph__create_data_source` / `tigergraph__update_data_source`
 - `tigergraph__get_data_source` / `tigergraph__drop_data_source`
 - `tigergraph__get_all_data_sources` / `tigergraph__drop_all_data_sources`
+- `tigergraph__get_data_source_types` — List supported types and their configuration keys
 - `tigergraph__preview_sample_data`
+
+Supported data source types:
+
+| Family | Types |
+|---|---|
+| Object storage | `s3`, `gcs`, `abs` (alias: `azure_blob`) |
+| Data warehouse | `snowflake`, `bigquery`, `postgresql` |
+| Lakehouse | `iceberg` |
+| Streaming | `kafka`, `kafka_v2`, `mirrormaker` |
+
+Each type takes different configuration keys. Call `tigergraph__get_data_source_types`
+for the required keys and a worked example, or see
+[Loading from a data warehouse](docs/warehouse_loading.md).
+
+Credentials in `config` are sent to TigerGraph but masked in tool responses, so they
+do not appear in a conversation transcript.
 
 ### Connection / Session
 - `tigergraph__list_connections` / `tigergraph__show_connection` — Inspect configured profiles

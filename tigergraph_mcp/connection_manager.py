@@ -21,6 +21,7 @@ instance; the active instance is published via a ``ContextVar`` so the
 module-level ``get_connection()`` resolves the right pool per request.
 """
 
+import asyncio
 import contextvars
 import logging
 import os
@@ -108,6 +109,109 @@ def _get_env_for_profile(profile: str, key: str, default: str = "") -> str:
         if alias:
             value = os.getenv(f"TG_{alias}", "")
     return value or default
+
+
+# Fields that describe *where* a TigerGraph lives (operator config) versus
+# *who* is connecting (per-user identity). HTTP mode treats them differently:
+# topology may come from the server's env, identity normally may not.
+TOPOLOGY_KEYS = ("HOST", "GRAPHNAME", "RESTPP_PORT", "GS_PORT", "SSL_PORT",
+                 "TGCLOUD", "CERT_PATH")
+IDENTITY_KEYS = ("USERNAME", "PASSWORD", "SECRET", "API_TOKEN", "JWT_TOKEN")
+
+
+def resolve_profile_name(profile: Optional[str]) -> str:
+    """Turn a caller-supplied profile argument into a concrete profile name.
+
+    Omitting it and naming ``"default"`` mean the same thing: the server's
+    default profile. Any other name is used as given.
+    """
+    if not profile or profile.strip().lower() == "default":
+        return default_profile_name()
+    return profile.strip().lower()
+
+
+DEFAULT_VALIDATE_TIMEOUT = 10.0
+
+
+def validate_timeout() -> float:
+    """Seconds to wait for a credential probe before calling it unreachable."""
+    try:
+        return float(os.getenv("TG_HTTP_VALIDATE_TIMEOUT", str(DEFAULT_VALIDATE_TIMEOUT)))
+    except ValueError:
+        return DEFAULT_VALIDATE_TIMEOUT
+
+
+async def validate_connection(conn: AsyncTigerGraphConnection) -> None:
+    """Prove a connection's credentials against TigerGraph.
+
+    Called wherever a connection is first created from caller-supplied
+    credentials, so a bad credential is reported at that point rather than
+    surfacing later as a confusing tool failure.
+
+    Password auth mints a token, which both proves the password and leaves the
+    connection holding a token for subsequent calls. Token auth only needs a
+    cheap authenticated ping.
+
+    Raises whatever TigerGraph or the network raised on failure.
+    """
+    timeout = validate_timeout()
+    if not getattr(conn, "apiToken", "") and not getattr(conn, "jwtToken", ""):
+        await asyncio.wait_for(conn.getToken(), timeout=timeout)
+    else:
+        await asyncio.wait_for(conn.echo(), timeout=timeout)
+
+
+def default_profile_name() -> str:
+    """The profile used when a caller does not name one.
+
+    ``TG_DEFAULT_PROFILE`` (or its older name ``TG_PROFILE``) selects it;
+    unset, it is ``"default"``, which reads the unprefixed ``TG_*`` variables.
+    This is a property of the server's configuration, not of any session.
+    """
+    return (
+        os.getenv("TG_DEFAULT_PROFILE")
+        or os.getenv("TG_PROFILE")
+        or "default"
+    ).strip().lower() or "default"
+
+
+def profile_topology(profile: str) -> Dict[str, Any]:
+    """Topology fields configured for ``profile`` in the process environment."""
+    return {
+        "host": _get_env_for_profile(profile, "HOST", ""),
+        "graphname": _get_env_for_profile(profile, "GRAPHNAME", ""),
+        "restpp_port": _get_env_for_profile(profile, "RESTPP_PORT", "9000"),
+        "gs_port": _get_env_for_profile(profile, "GS_PORT", "14240"),
+        "ssl_port": _get_env_for_profile(profile, "SSL_PORT", "443"),
+        "tg_cloud": _get_env_for_profile(profile, "TGCLOUD", "false").lower() == "true",
+        "cert_path": _get_env_for_profile(profile, "CERT_PATH", "") or None,
+    }
+
+
+def profile_credentials(profile: str) -> Dict[str, str]:
+    """Identity fields resolved for ``profile``.
+
+    A named profile may define its own credentials; where it does not, it
+    inherits the unprefixed ``TG_*`` ones, exactly as in stdio mode. An empty
+    result means no credentials are configured anywhere, so a caller must
+    supply them.
+    """
+    return {
+        key.lower(): _get_env_for_profile(profile, key, "") for key in IDENTITY_KEYS
+    }
+
+
+def profile_has_credentials(profile: str) -> bool:
+    creds = profile_credentials(profile)
+    return bool(creds["api_token"] or creds["jwt_token"]
+                or (creds["username"] and creds["password"]))
+
+
+def list_env_profiles() -> List[str]:
+    """Profile names discoverable from the process environment."""
+    found: set = set()
+    _discover_profiles_into(found)
+    return sorted(found)
 
 
 def _discover_profiles_into(profile_set: set) -> None:
@@ -323,17 +427,53 @@ class SessionConnectionManager:
     def set_default_connection(self, conn: AsyncTigerGraphConnection) -> None:
         self._default_connection = conn
 
+    def register_connection(
+        self,
+        profile: str,
+        conn: AsyncTigerGraphConnection,
+        as_default: bool = True,
+    ) -> None:
+        """Add a connection to this session's pool.
+
+        ``as_default`` records it as the connection this session was
+        established with. Which profile the name "default" refers to is a
+        server setting, not a session one.
+        """
+        self._connection_pool[profile] = conn
+        self._profiles.add(profile)
+        if as_default:
+            self._default_connection = conn
+
     def get_connection_for_profile(
         self,
         profile: str = "default",
         graph_name: Optional[str] = None,
     ) -> AsyncTigerGraphConnection:
-        def _set_default(conn: AsyncTigerGraphConnection) -> None:
-            self._default_connection = conn
+        if profile not in self._connection_pool:
+            # Not yet open in this session: build it from the server's
+            # configured profiles, which are the identities the operator chose
+            # to expose. Anything not configured is refused rather than
+            # silently falling back.
+            if profile not in list_env_profiles():
+                available = sorted(set(self._connection_pool) | set(list_env_profiles()))
+                raise ValueError(
+                    f"Unknown profile '{profile}'. Available: "
+                    f"{', '.join(available) or '<none>'}."
+                )
+            if not profile_has_credentials(profile):
+                raise ValueError(
+                    f"Profile '{profile}' defines no credentials on this server, "
+                    "so it cannot be opened by name. Supply credentials in the "
+                    "request headers to use it as the session's own identity."
+                )
+            conn = _build_or_reuse(self._connection_pool, profile, graph_name)
+            self._profiles.add(profile)
+            return conn
 
-        return _build_or_reuse(
-            self._connection_pool, profile, graph_name, _set_default
-        )
+        conn = self._connection_pool[profile]
+        if graph_name and conn.graphname != graph_name:
+            conn.graphname = graph_name
+        return conn
 
     def get_profile_info(self, profile: str = "default") -> Dict[str, str]:
         return _profile_info(profile)
@@ -444,6 +584,18 @@ def get_connection(
             certPath=connection_config.get("certPath", None),
         )
 
-    effective_profile = profile or os.getenv("TG_PROFILE", "default")
     active = get_active_manager()
+    if isinstance(active, SessionConnectionManager):
+        # HTTP/SSE: an unqualified call uses whichever profile this request
+        # resolved to. TG_PROFILE is applied earlier, when the request's
+        # config is assembled, so consulting it again here would select a pool
+        # slot that bypasses the connection built from the caller's own
+        # credentials.
+        # "default" is the server's default profile, the same one stdio would
+        # use; a session does not redefine it. Omitting the argument means the
+        # same thing. Any other name opens (or reuses) that configured profile
+        # inside this session's pool.
+        effective_profile = resolve_profile_name(profile)
+    else:
+        effective_profile = resolve_profile_name(profile)
     return active.get_connection_for_profile(effective_profile, graph_name)

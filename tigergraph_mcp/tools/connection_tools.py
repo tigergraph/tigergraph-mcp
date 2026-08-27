@@ -20,6 +20,9 @@ from pyTigerGraph import AsyncTigerGraphConnection
 
 from ..tool_names import TigerGraphToolName
 from ..connection_manager import (
+    default_profile_name,
+    resolve_profile_name,
+    validate_connection,
     ConnectionManager,
     SessionConnectionManager,
     get_active_manager,
@@ -45,6 +48,14 @@ class ShowConnectionToolInput(BaseModel):
 class AuthenticateToolInput(BaseModel):
     """Input schema for registering session credentials."""
     host: str = Field(..., description="TigerGraph host URL, e.g. https://acme.tgcloud.io.")
+    profile: Optional[str] = Field(
+        None,
+        description=(
+            "Profile whose connection these credentials replace. Omit, or pass "
+            "'default', to replace the default profile's connection. Only this "
+            "profile is affected; other profiles in the session keep theirs."
+        ),
+    )
     graphname: Optional[str] = Field(None, description="Default graph for this session.")
     username: Optional[str] = Field(None, description="TigerGraph username (password auth).")
     password: Optional[str] = Field(None, description="TigerGraph password (password auth).")
@@ -83,10 +94,11 @@ authenticate_tool = Tool(
     name=TigerGraphToolName.AUTHENTICATE,
     description=(
         "Register TigerGraph credentials for the current MCP session.\n\n"
-        "Typically the first tool call an HTTP/SSE client makes — pins the "
-        "session's connection so subsequent tool calls go to the right "
-        "TigerGraph with the right user. Stdio mode normally uses env-var "
-        "profiles instead and does not need this tool.\n\n"
+        "Re-points one of the session's connections at a TigerGraph instance. "
+        "Omit ``profile`` to replace the default profile's connection, or name "
+        "a profile to replace only that one, leaving the session's other "
+        "profiles untouched. Stdio mode uses env-var profiles instead and does "
+        "not need this tool.\n\n"
         "Either ``api_token``/``jwt_token`` OR ``username`` + ``password`` "
         "must be supplied. The credentials live only in the session's "
         "in-memory connection pool and are dropped on disconnect."
@@ -145,6 +157,7 @@ async def show_connection(profile: Optional[str] = None) -> List[TextContent]:
 
 async def authenticate(
     host: str,
+    profile: Optional[str] = None,
     graphname: Optional[str] = None,
     username: Optional[str] = None,
     password: Optional[str] = None,
@@ -195,18 +208,34 @@ async def authenticate(
             tgCloud=bool(tg_cloud) if tg_cloud is not None else False,
             certPath=cert_path or None,
         )
-        # Replace any previous "default" connection in this session.
-        prior = active._connection_pool.pop("default", None)
+        # Prove the credentials before touching the session, so a bad one
+        # leaves the existing connection in place instead of replacing a
+        # working connection with a broken one.
+        target = resolve_profile_name(profile)
+        try:
+            await validate_connection(conn)
+        except Exception as e:
+            try:
+                await conn.aclose()
+            except Exception:
+                pass
+            return format_error(
+                operation="authenticate",
+                error=f"TigerGraph rejected the credentials for {host}: {e}",
+                suggestions=[
+                    "Check the host, username, and password or token",
+                    f"The '{target}' profile's existing connection is unchanged",
+                ],
+            )
+
+        is_default = target == default_profile_name()
+        prior = active._connection_pool.pop(target, None)
         if prior is not None:
             try:
                 await prior.aclose()
             except Exception:
                 pass
-        active._connection_pool["default"] = conn
-        active.set_default_connection(conn)
-
-        if "default" not in active._profiles:
-            active._profiles.add("default")
+        active.register_connection(target, conn, as_default=is_default)
 
         if jwt_token:
             auth_mode = "token (JWT)"
@@ -217,11 +246,14 @@ async def authenticate(
 
         return format_success(
             operation="authenticate",
-            summary=f"Session authenticated to {host} ({auth_mode})",
+            summary=(
+                f"Session authenticated to {host} as profile '{target}' ({auth_mode})"
+            ),
             data={
                 "host": host,
                 "graphname": graphname or "",
                 "auth_mode": auth_mode,
+                "profile": target,
             },
             suggestions=[
                 "Inspect: show_connection()",

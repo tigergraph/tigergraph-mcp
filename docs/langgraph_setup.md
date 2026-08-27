@@ -99,3 +99,14 @@ Type `help` to see available tools and examples.
 ### Multi-line Input
 
 Press **Enter** on an empty line to submit multi-line input. Type `exit` to quit.
+
+### Data source credentials
+
+S3 data sources require both `access.key` and `secret.key`; TigerGraph rejects the
+request if either is missing or empty, including for public buckets, where the
+anonymous credentials provider governs actual access. Set `S3_ACCESS_KEY` and
+`S3_SECRET_KEY` in the environment to override the defaults.
+
+Ask the assistant to run `get_data_source_types` to see the keys any data source
+type requires. Beyond object storage, it can also connect Snowflake, BigQuery,
+PostgreSQL, and Iceberg — see [Loading from a data warehouse](warehouse_loading.md).

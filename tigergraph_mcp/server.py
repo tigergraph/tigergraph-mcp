@@ -7,12 +7,47 @@
 
 """MCP Server implementation for TigerGraph."""
 
+import asyncio
 import contextlib
 import logging
-from typing import Dict, List, Optional
+import os
+import time
+from typing import Any, Dict, List, Optional
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+from mcp.types import Tool, TextContent, CallToolResult, ListToolsResult
+
+# The MCP SDK changed how request handlers are registered in 2.0: the
+# ``@server.list_tools()`` / ``@server.call_tool()`` decorators were replaced
+# by ``on_list_tools`` / ``on_call_tool`` constructor callbacks that receive a
+# ServerRequestContext and return a result object. Probe for the decorators
+# rather than the version string so a backport or a fork is handled correctly.
+_SDK_HAS_DECORATORS = hasattr(Server, "list_tools") and hasattr(Server, "call_tool")
+
+# An HTTP session's connection pool lives until the process exits unless it is
+# reclaimed: MCP gives no "session closed" signal, and some clients open a
+# session per tool call, so pools would otherwise accumulate one per call.
+DEFAULT_SESSION_IDLE_TIMEOUT = 900.0
+DEFAULT_SESSION_SWEEP_INTERVAL = 60.0
+
+
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def session_idle_timeout() -> float:
+    """Seconds a session's connections are kept after its last tool call.
+
+    ``TG_HTTP_SESSION_IDLE_TIMEOUT=0`` keeps them for the life of the process.
+    """
+    return _float_env("TG_HTTP_SESSION_IDLE_TIMEOUT", DEFAULT_SESSION_IDLE_TIMEOUT)
+
+
+def session_sweep_interval() -> float:
+    return _float_env("TG_HTTP_SESSION_SWEEP_INTERVAL", DEFAULT_SESSION_SWEEP_INTERVAL)
 
 from .tool_names import TigerGraphToolName
 from .response_formatter import format_error
@@ -106,6 +141,7 @@ from .tools import (
     get_all_data_sources,
     drop_all_data_sources,
     preview_sample_data,
+    get_data_source_types,
     # Discovery tools
     discover_tools,
     get_workflow,
@@ -134,13 +170,29 @@ class MCPServer:
             multi_session: True for HTTP/SSE transports. Enables per-session
                 connection pools so concurrent users don't share state.
         """
-        self.server = Server(name)
         self.multi_session = multi_session
         self._session_managers: Dict[int, SessionConnectionManager] = {}
-        self._setup_handlers()
+        # Last time each session was used, for reclaiming idle pools.
+        self._session_last_used: Dict[int, float] = {}
+        self.server = self._build_server(name)
+
+    def _build_server(self, name: str) -> Server:
+        """Construct the SDK server, registering handlers the way it expects."""
+        if _SDK_HAS_DECORATORS:
+            server = Server(name)
+            server.list_tools()(self._handle_list_tools)
+            server.call_tool()(self._handle_call_tool)
+            return server
+
+        return Server(
+            name,
+            on_list_tools=self._on_list_tools,
+            on_call_tool=self._on_call_tool,
+        )
 
     async def _session_manager_for_current_request(
         self,
+        session: Optional[Any] = None,
     ) -> Optional[SessionConnectionManager]:
         """Look up (or create) the SessionConnectionManager for the in-flight request.
 
@@ -152,17 +204,19 @@ class MCPServer:
         """
         if not self.multi_session:
             return None
-        try:
-            session = self.server.request_context.session
-        except LookupError:
-            return None
+        if session is None:
+            # MCP 1.x exposes the in-flight session on the server; 2.x hands it
+            # to the handler, in which case the caller passes it in.
+            try:
+                session = self.server.request_context.session
+            except (LookupError, AttributeError):
+                return None
         key = id(session)
         cm = self._session_managers.get(key)
         if cm is None:
             cm = SessionConnectionManager()
-            # Seed the session with the same profile set the process
-            # discovered at startup so list_profiles is informative.
-            cm._profiles = set(ConnectionManager._profiles) | {"default"}
+            # A session starts empty: it may only use identities established
+            # by its own requests, never the server's configured profiles.
             self._session_managers[key] = cm
 
         # Seed (or refresh) the session's default connection from credentials
@@ -170,6 +224,8 @@ class MCPServer:
         # None when the middleware is disabled (tests) or when the request
         # arrived without headers (rejected by the middleware before this
         # code runs in normal HTTP deployments).
+        self._session_last_used[key] = time.monotonic()
+
         creds = get_pending_credentials()
         if creds is not None and self._creds_differ(cm, creds):
             await self._apply_credentials(cm, creds)
@@ -178,8 +234,8 @@ class MCPServer:
     @staticmethod
     def _creds_differ(cm: SessionConnectionManager, creds: dict) -> bool:
         """Cheap check: does ``creds`` describe a different host/auth than the
-        session's current default connection?"""
-        conn = cm.get_default_connection()
+        connection already held for this request's profile?"""
+        conn = cm._connection_pool.get(creds.get("profile", "default"))
         if conn is None:
             return True
         if getattr(conn, "host", None) != creds.get("host"):
@@ -209,206 +265,274 @@ class MCPServer:
             tgCloud=bool(creds.get("tg_cloud", False)),
             certPath=creds.get("cert_path"),
         )
-        cm._connection_pool["default"] = conn
-        cm.set_default_connection(conn)
-        cm._profiles.add("default")
+        cm.register_connection(creds.get("profile", "default"), conn)
+
+    async def sweep_idle_sessions(self, now: Optional[float] = None) -> int:
+        """Close pools untouched for longer than the idle timeout.
+
+        A swept session is not broken: a later request rebuilds its pool from
+        the credentials it was established with.
+
+        Returns the number of sessions reclaimed.
+        """
+        timeout = session_idle_timeout()
+        if timeout <= 0:
+            return 0
+        now = time.monotonic() if now is None else now
+
+        stale = [
+            key for key, last in self._session_last_used.items()
+            if now - last > timeout
+        ]
+        for key in stale:
+            cm = self._session_managers.pop(key, None)
+            self._session_last_used.pop(key, None)
+            if cm is None:
+                continue
+            try:
+                await cm.close_all()
+            except Exception:
+                logger.exception("Error closing an idle session connection pool")
+        if stale:
+            logger.info("Reclaimed %d idle session(s)", len(stale))
+        return len(stale)
+
+    async def run_session_sweeper(self) -> None:
+        """Reclaim idle session pools until cancelled."""
+        interval = session_sweep_interval()
+        if session_idle_timeout() <= 0 or interval <= 0:
+            return
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await self.sweep_idle_sessions()
+            except Exception:
+                logger.exception("Session sweeper iteration failed")
 
     async def aclose_session_managers(self) -> None:
         """Close all per-session connection pools. Call at shutdown."""
         managers = list(self._session_managers.values())
         self._session_managers.clear()
+        self._session_last_used.clear()
         for cm in managers:
             try:
                 await cm.close_all()
             except Exception:
                 logger.exception("Error closing a session connection manager")
 
-    def _setup_handlers(self):
-        """Setup MCP server handlers."""
+    # ------------------------------------------------------------------
+    # Request handlers
+    #
+    # Registered through whichever API the installed SDK exposes; see
+    # _build_server. Both generations share these implementations.
+    # ------------------------------------------------------------------
 
-        @self.server.list_tools()
-        async def list_tools() -> List[Tool]:
-            """List all available tools."""
-            return get_all_tools()
+    async def _handle_list_tools(self) -> List[Tool]:
+        """List all available tools."""
+        return get_all_tools()
 
-        @self.server.call_tool()
-        async def call_tool(name: str, arguments: Dict) -> List[TextContent]:
-            """Handle tool calls."""
-            session_cm = await self._session_manager_for_current_request()
-            bind_cm = (
-                use_session_manager(session_cm)
-                if session_cm is not None
-                else contextlib.nullcontext()
-            )
-            with bind_cm:
-                try:
-                    match name:
-                        # Connection profile operations
-                        case TigerGraphToolName.LIST_CONNECTIONS:
-                            return await list_connections(**arguments)
-                        case TigerGraphToolName.SHOW_CONNECTION:
-                            return await show_connection(**arguments)
-                        case TigerGraphToolName.AUTHENTICATE:
-                            return await authenticate(**arguments)
-                        # Global schema operations (database level)
-                        case TigerGraphToolName.GET_GLOBAL_SCHEMA:
-                            return await get_global_schema(**arguments)
-                        # Graph operations (database level)
-                        case TigerGraphToolName.LIST_GRAPHS:
-                            return await list_graphs(**arguments)
-                        case TigerGraphToolName.CREATE_GRAPH:
-                            return await create_graph(**arguments)
-                        case TigerGraphToolName.DROP_GRAPH:
-                            return await drop_graph(**arguments)
-                        case TigerGraphToolName.CLEAR_GRAPH_DATA:
-                            return await clear_graph_data(**arguments)
-                        # Schema operations (graph level)
-                        case TigerGraphToolName.GET_GRAPH_SCHEMA:
-                            return await get_graph_schema(**arguments)
-                        case TigerGraphToolName.SHOW_GRAPH_DETAILS:
-                            return await show_graph_details(**arguments)
-                        case TigerGraphToolName.UPDATE_SCHEMA:
-                            return await update_schema(**arguments)
-                        case TigerGraphToolName.VALIDATE_SCHEMA_NAMES:
-                            return await validate_schema_names(**arguments)
-                        # Node operations
-                        case TigerGraphToolName.ADD_NODE:
-                            return await add_node(**arguments)
-                        case TigerGraphToolName.ADD_NODES:
-                            return await add_nodes(**arguments)
-                        case TigerGraphToolName.GET_NODE:
-                            return await get_node(**arguments)
-                        case TigerGraphToolName.GET_NODES:
-                            return await get_nodes(**arguments)
-                        case TigerGraphToolName.DELETE_NODE:
-                            return await delete_node(**arguments)
-                        case TigerGraphToolName.DELETE_NODES:
-                            return await delete_nodes(**arguments)
-                        case TigerGraphToolName.HAS_NODE:
-                            return await has_node(**arguments)
-                        case TigerGraphToolName.GET_NODE_EDGES:
-                            return await get_node_edges(**arguments)
-                        # Edge operations
-                        case TigerGraphToolName.ADD_EDGE:
-                            return await add_edge(**arguments)
-                        case TigerGraphToolName.ADD_EDGES:
-                            return await add_edges(**arguments)
-                        case TigerGraphToolName.GET_EDGE:
-                            return await get_edge(**arguments)
-                        case TigerGraphToolName.GET_EDGES:
-                            return await get_edges(**arguments)
-                        case TigerGraphToolName.DELETE_EDGE:
-                            return await delete_edge(**arguments)
-                        case TigerGraphToolName.DELETE_EDGES:
-                            return await delete_edges(**arguments)
-                        case TigerGraphToolName.HAS_EDGE:
-                            return await has_edge(**arguments)
-                        # Query operations
-                        case TigerGraphToolName.RUN_QUERY:
-                            return await run_query(**arguments)
-                        case TigerGraphToolName.RUN_INSTALLED_QUERY:
-                            return await run_installed_query(**arguments)
-                        case TigerGraphToolName.INSTALL_QUERY:
-                            return await install_query(**arguments)
-                        case TigerGraphToolName.DROP_QUERY:
-                            return await drop_query(**arguments)
-                        case TigerGraphToolName.SHOW_QUERY:
-                            return await show_query(**arguments)
-                        case TigerGraphToolName.GET_QUERY_METADATA:
-                            return await get_query_metadata(**arguments)
-                        case TigerGraphToolName.UPDATE_QUERY_DESCRIPTION:
-                            return await update_query_description(**arguments)
-                        case TigerGraphToolName.GET_QUERY_DESCRIPTION:
-                            return await get_query_description(**arguments)
-                        case TigerGraphToolName.IS_QUERY_INSTALLED:
-                            return await is_query_installed(**arguments)
-                        case TigerGraphToolName.GET_NEIGHBORS:
-                            return await get_neighbors(**arguments)
-                        # Loading job operations
-                        case TigerGraphToolName.CREATE_LOADING_JOB:
-                            return await create_loading_job(**arguments)
-                        case TigerGraphToolName.RUN_LOADING_JOB_WITH_FILE:
-                            return await run_loading_job_with_file(**arguments)
-                        case TigerGraphToolName.RUN_LOADING_JOB_WITH_DATA:
-                            return await run_loading_job_with_data(**arguments)
-                        case TigerGraphToolName.GET_LOADING_JOBS:
-                            return await get_loading_jobs(**arguments)
-                        case TigerGraphToolName.GET_LOADING_JOB_STATUS:
-                            return await get_loading_job_status(**arguments)
-                        case TigerGraphToolName.DROP_LOADING_JOB:
-                            return await drop_loading_job(**arguments)
-                        # Statistics operations
-                        case TigerGraphToolName.GET_VERTEX_COUNT:
-                            return await get_vertex_count(**arguments)
-                        case TigerGraphToolName.GET_EDGE_COUNT:
-                            return await get_edge_count(**arguments)
-                        case TigerGraphToolName.GET_NODE_DEGREE:
-                            return await get_node_degree(**arguments)
-                        # GSQL operations
-                        case TigerGraphToolName.GSQL:
-                            return await gsql(**arguments)
-                        case TigerGraphToolName.GENERATE_GSQL:
-                            return await generate_gsql(**arguments)
-                        case TigerGraphToolName.GENERATE_CYPHER:
-                            return await generate_cypher(**arguments)
-                        # Vector schema operations
-                        case TigerGraphToolName.ADD_VECTOR_ATTRIBUTE:
-                            return await add_vector_attribute(**arguments)
-                        case TigerGraphToolName.DROP_VECTOR_ATTRIBUTE:
-                            return await drop_vector_attribute(**arguments)
-                        case TigerGraphToolName.LIST_VECTOR_ATTRIBUTES:
-                            return await list_vector_attributes(**arguments)
-                        case TigerGraphToolName.GET_VECTOR_INDEX_STATUS:
-                            return await get_vector_index_status(**arguments)
-                        # Vector data operations
-                        case TigerGraphToolName.UPSERT_VECTORS:
-                            return await upsert_vectors(**arguments)
-                        case TigerGraphToolName.LOAD_VECTORS_FROM_CSV:
-                            return await load_vectors_from_csv(**arguments)
-                        case TigerGraphToolName.LOAD_VECTORS_FROM_JSON:
-                            return await load_vectors_from_json(**arguments)
-                        case TigerGraphToolName.SEARCH_TOP_K_SIMILARITY:
-                            return await search_top_k_similarity(**arguments)
-                        case TigerGraphToolName.FETCH_VECTOR:
-                            return await fetch_vector(**arguments)
-                        # Data Source operations
-                        case TigerGraphToolName.CREATE_DATA_SOURCE:
-                            return await create_data_source(**arguments)
-                        case TigerGraphToolName.UPDATE_DATA_SOURCE:
-                            return await update_data_source(**arguments)
-                        case TigerGraphToolName.GET_DATA_SOURCE:
-                            return await get_data_source(**arguments)
-                        case TigerGraphToolName.DROP_DATA_SOURCE:
-                            return await drop_data_source(**arguments)
-                        case TigerGraphToolName.GET_ALL_DATA_SOURCES:
-                            return await get_all_data_sources(**arguments)
-                        case TigerGraphToolName.DROP_ALL_DATA_SOURCES:
-                            return await drop_all_data_sources(**arguments)
-                        case TigerGraphToolName.PREVIEW_SAMPLE_DATA:
-                            return await preview_sample_data(**arguments)
-                        # Discovery operations
-                        case TigerGraphToolName.DISCOVER_TOOLS:
-                            return await discover_tools(**arguments)
-                        case TigerGraphToolName.GET_WORKFLOW:
-                            return await get_workflow(**arguments)
-                        case TigerGraphToolName.GET_TOOL_INFO:
-                            return await get_tool_info(**arguments)
-                        case _:
-                            raise ValueError(f"Unknown tool: {name}")
-                except TigerGraphException as e:
-                    logger.exception("Error in tool execution")
-                    return format_error(
-                        operation=name,
-                        error=e,
-                        context={"arguments": arguments},
-                    )
-                except Exception as e:
-                    logger.exception("Error in tool execution")
-                    return format_error(
-                        operation=name,
-                        error=e,
-                        context={"arguments": arguments},
-                    )
+    async def _handle_call_tool(
+        self,
+        name: str,
+        arguments: Dict,
+        session: Optional[Any] = None,
+    ) -> List[TextContent]:
+        """Handle tool calls."""
+        session_cm = await self._session_manager_for_current_request(session)
+        bind_cm = (
+            use_session_manager(session_cm)
+            if session_cm is not None
+            else contextlib.nullcontext()
+        )
+        with bind_cm:
+            try:
+                match name:
+                    # Connection profile operations
+                    case TigerGraphToolName.LIST_CONNECTIONS:
+                        return await list_connections(**arguments)
+                    case TigerGraphToolName.SHOW_CONNECTION:
+                        return await show_connection(**arguments)
+                    case TigerGraphToolName.AUTHENTICATE:
+                        return await authenticate(**arguments)
+                    # Global schema operations (database level)
+                    case TigerGraphToolName.GET_GLOBAL_SCHEMA:
+                        return await get_global_schema(**arguments)
+                    # Graph operations (database level)
+                    case TigerGraphToolName.LIST_GRAPHS:
+                        return await list_graphs(**arguments)
+                    case TigerGraphToolName.CREATE_GRAPH:
+                        return await create_graph(**arguments)
+                    case TigerGraphToolName.DROP_GRAPH:
+                        return await drop_graph(**arguments)
+                    case TigerGraphToolName.CLEAR_GRAPH_DATA:
+                        return await clear_graph_data(**arguments)
+                    # Schema operations (graph level)
+                    case TigerGraphToolName.GET_GRAPH_SCHEMA:
+                        return await get_graph_schema(**arguments)
+                    case TigerGraphToolName.SHOW_GRAPH_DETAILS:
+                        return await show_graph_details(**arguments)
+                    case TigerGraphToolName.UPDATE_SCHEMA:
+                        return await update_schema(**arguments)
+                    case TigerGraphToolName.VALIDATE_SCHEMA_NAMES:
+                        return await validate_schema_names(**arguments)
+                    # Node operations
+                    case TigerGraphToolName.ADD_NODE:
+                        return await add_node(**arguments)
+                    case TigerGraphToolName.ADD_NODES:
+                        return await add_nodes(**arguments)
+                    case TigerGraphToolName.GET_NODE:
+                        return await get_node(**arguments)
+                    case TigerGraphToolName.GET_NODES:
+                        return await get_nodes(**arguments)
+                    case TigerGraphToolName.DELETE_NODE:
+                        return await delete_node(**arguments)
+                    case TigerGraphToolName.DELETE_NODES:
+                        return await delete_nodes(**arguments)
+                    case TigerGraphToolName.HAS_NODE:
+                        return await has_node(**arguments)
+                    case TigerGraphToolName.GET_NODE_EDGES:
+                        return await get_node_edges(**arguments)
+                    # Edge operations
+                    case TigerGraphToolName.ADD_EDGE:
+                        return await add_edge(**arguments)
+                    case TigerGraphToolName.ADD_EDGES:
+                        return await add_edges(**arguments)
+                    case TigerGraphToolName.GET_EDGE:
+                        return await get_edge(**arguments)
+                    case TigerGraphToolName.GET_EDGES:
+                        return await get_edges(**arguments)
+                    case TigerGraphToolName.DELETE_EDGE:
+                        return await delete_edge(**arguments)
+                    case TigerGraphToolName.DELETE_EDGES:
+                        return await delete_edges(**arguments)
+                    case TigerGraphToolName.HAS_EDGE:
+                        return await has_edge(**arguments)
+                    # Query operations
+                    case TigerGraphToolName.RUN_QUERY:
+                        return await run_query(**arguments)
+                    case TigerGraphToolName.RUN_INSTALLED_QUERY:
+                        return await run_installed_query(**arguments)
+                    case TigerGraphToolName.INSTALL_QUERY:
+                        return await install_query(**arguments)
+                    case TigerGraphToolName.DROP_QUERY:
+                        return await drop_query(**arguments)
+                    case TigerGraphToolName.SHOW_QUERY:
+                        return await show_query(**arguments)
+                    case TigerGraphToolName.GET_QUERY_METADATA:
+                        return await get_query_metadata(**arguments)
+                    case TigerGraphToolName.UPDATE_QUERY_DESCRIPTION:
+                        return await update_query_description(**arguments)
+                    case TigerGraphToolName.GET_QUERY_DESCRIPTION:
+                        return await get_query_description(**arguments)
+                    case TigerGraphToolName.IS_QUERY_INSTALLED:
+                        return await is_query_installed(**arguments)
+                    case TigerGraphToolName.GET_NEIGHBORS:
+                        return await get_neighbors(**arguments)
+                    # Loading job operations
+                    case TigerGraphToolName.CREATE_LOADING_JOB:
+                        return await create_loading_job(**arguments)
+                    case TigerGraphToolName.RUN_LOADING_JOB_WITH_FILE:
+                        return await run_loading_job_with_file(**arguments)
+                    case TigerGraphToolName.RUN_LOADING_JOB_WITH_DATA:
+                        return await run_loading_job_with_data(**arguments)
+                    case TigerGraphToolName.GET_LOADING_JOBS:
+                        return await get_loading_jobs(**arguments)
+                    case TigerGraphToolName.GET_LOADING_JOB_STATUS:
+                        return await get_loading_job_status(**arguments)
+                    case TigerGraphToolName.DROP_LOADING_JOB:
+                        return await drop_loading_job(**arguments)
+                    # Statistics operations
+                    case TigerGraphToolName.GET_VERTEX_COUNT:
+                        return await get_vertex_count(**arguments)
+                    case TigerGraphToolName.GET_EDGE_COUNT:
+                        return await get_edge_count(**arguments)
+                    case TigerGraphToolName.GET_NODE_DEGREE:
+                        return await get_node_degree(**arguments)
+                    # GSQL operations
+                    case TigerGraphToolName.GSQL:
+                        return await gsql(**arguments)
+                    case TigerGraphToolName.GENERATE_GSQL:
+                        return await generate_gsql(**arguments)
+                    case TigerGraphToolName.GENERATE_CYPHER:
+                        return await generate_cypher(**arguments)
+                    # Vector schema operations
+                    case TigerGraphToolName.ADD_VECTOR_ATTRIBUTE:
+                        return await add_vector_attribute(**arguments)
+                    case TigerGraphToolName.DROP_VECTOR_ATTRIBUTE:
+                        return await drop_vector_attribute(**arguments)
+                    case TigerGraphToolName.LIST_VECTOR_ATTRIBUTES:
+                        return await list_vector_attributes(**arguments)
+                    case TigerGraphToolName.GET_VECTOR_INDEX_STATUS:
+                        return await get_vector_index_status(**arguments)
+                    # Vector data operations
+                    case TigerGraphToolName.UPSERT_VECTORS:
+                        return await upsert_vectors(**arguments)
+                    case TigerGraphToolName.LOAD_VECTORS_FROM_CSV:
+                        return await load_vectors_from_csv(**arguments)
+                    case TigerGraphToolName.LOAD_VECTORS_FROM_JSON:
+                        return await load_vectors_from_json(**arguments)
+                    case TigerGraphToolName.SEARCH_TOP_K_SIMILARITY:
+                        return await search_top_k_similarity(**arguments)
+                    case TigerGraphToolName.FETCH_VECTOR:
+                        return await fetch_vector(**arguments)
+                    # Data Source operations
+                    case TigerGraphToolName.CREATE_DATA_SOURCE:
+                        return await create_data_source(**arguments)
+                    case TigerGraphToolName.UPDATE_DATA_SOURCE:
+                        return await update_data_source(**arguments)
+                    case TigerGraphToolName.GET_DATA_SOURCE:
+                        return await get_data_source(**arguments)
+                    case TigerGraphToolName.DROP_DATA_SOURCE:
+                        return await drop_data_source(**arguments)
+                    case TigerGraphToolName.GET_ALL_DATA_SOURCES:
+                        return await get_all_data_sources(**arguments)
+                    case TigerGraphToolName.DROP_ALL_DATA_SOURCES:
+                        return await drop_all_data_sources(**arguments)
+                    case TigerGraphToolName.PREVIEW_SAMPLE_DATA:
+                        return await preview_sample_data(**arguments)
+                    case TigerGraphToolName.GET_DATA_SOURCE_TYPES:
+                        return await get_data_source_types(**arguments)
+                    # Discovery operations
+                    case TigerGraphToolName.DISCOVER_TOOLS:
+                        return await discover_tools(**arguments)
+                    case TigerGraphToolName.GET_WORKFLOW:
+                        return await get_workflow(**arguments)
+                    case TigerGraphToolName.GET_TOOL_INFO:
+                        return await get_tool_info(**arguments)
+                    case _:
+                        raise ValueError(f"Unknown tool: {name}")
+            except TigerGraphException as e:
+                logger.exception("Error in tool execution")
+                return format_error(
+                    operation=name,
+                    error=e,
+                    context={"arguments": arguments},
+                )
+            except Exception as e:
+                logger.exception("Error in tool execution")
+                return format_error(
+                    operation=name,
+                    error=e,
+                    context={"arguments": arguments},
+                )
+
+    # ------------------------------------------------------------------
+    # MCP 2.x adapters
+    #
+    # The 2.x SDK passes a ServerRequestContext and expects a result
+    # object rather than a bare content list.
+    # ------------------------------------------------------------------
+
+    async def _on_list_tools(self, ctx: Any, params: Any) -> Any:
+        return ListToolsResult(tools=await self._handle_list_tools())
+
+    async def _on_call_tool(self, ctx: Any, params: Any) -> Any:
+        content = await self._handle_call_tool(
+            params.name,
+            params.arguments or {},
+            session=getattr(ctx, "session", None),
+        )
+        return CallToolResult(content=content)
 
 
 async def serve(
@@ -484,9 +608,13 @@ async def _serve_http(
         @contextlib.asynccontextmanager
         async def lifespan(app):
             async with session_manager.run():
+                sweeper = asyncio.create_task(server.run_session_sweeper())
                 try:
                     yield
                 finally:
+                    sweeper.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await sweeper
                     await server.aclose_session_managers()
 
         starlette_app = Starlette(

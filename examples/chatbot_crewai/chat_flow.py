@@ -23,6 +23,12 @@ from crews import (
 
 S3_ANONYMOUS_SOURCE_NAME = "s3_anonymous_source"
 
+# TigerGraph requires access.key and secret.key on every S3 data source and
+# rejects empty values, so they are supplied even for the public sample bucket,
+# where the anonymous credentials provider governs actual access.
+S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "anonymous")
+S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "anonymous")
+
 verbose = int(os.getenv("CREWAI_VERBOSE", "0"))
 llm = os.getenv("CREWAI_LLM", "openai/gpt-4.1-mini-2025-04-14")
 
@@ -359,7 +365,9 @@ class ChatFlow(Flow[ChatSessionState]):
                     "command": (
                         f"Create an S3 data source named '{S3_ANONYMOUS_SOURCE_NAME}' "
                         f"with type 's3' and config: "
-                        f'{{"file.reader.settings.fs.s3a.aws.credentials.provider": '
+                        f'{{"access.key": "{S3_ACCESS_KEY}", '
+                        f'"secret.key": "{S3_SECRET_KEY}", '
+                        f'"file.reader.settings.fs.s3a.aws.credentials.provider": '
                         f'"org.apache.hadoop.fs.s3a.AnonymousAWSCredentialsProvider"}}'
                     ),
                     "conversation_history": [],

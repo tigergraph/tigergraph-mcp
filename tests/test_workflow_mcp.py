@@ -31,13 +31,20 @@ import re
 import sys
 from datetime import timedelta
 
+import mcp.server as _mcp_server
+
 import pytest
 
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 GRAPH = "WorkflowTestGraph"
-TIMEOUT = timedelta(seconds=30)
+# MCP 1.x takes a timedelta here; 2.x takes seconds as a float.
+TIMEOUT = (
+    timedelta(seconds=30)
+    if hasattr(_mcp_server.Server, "list_tools")
+    else 30.0
+)
 
 # ── CSV data from copilot_setup.md Example 1 ─────────────────────────
 

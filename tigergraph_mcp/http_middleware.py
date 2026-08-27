@@ -25,14 +25,22 @@ that the session ultimately uses for tool calls.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 from typing import Any, Dict, Iterable, Mapping, Optional, Tuple
 
 from pyTigerGraph import AsyncTigerGraphConnection
 from pyTigerGraph.common.exception import TigerGraphException
 
 from .connection_manager import (
+    resolve_profile_name,
+    validate_connection,
+    validate_timeout,
+    list_env_profiles,
+    profile_credentials,
+    profile_topology,
     reset_pending_credentials,
     set_pending_credentials,
 )
@@ -54,6 +62,22 @@ GS_PORT_HEADER = "x-tg-gs-port"
 SSL_PORT_HEADER = "x-tg-ssl-port"
 TG_CLOUD_HEADER = "x-tg-tgcloud"
 CERT_PATH_HEADER = "x-tg-cert-path"
+PROFILE_HEADER = "x-tg-profile"
+# Set by the client on every request after the session is established.
+MCP_SESSION_HEADER = "mcp-session-id"
+
+DEFAULT_PROFILE = "default"
+
+
+def _allowed_profiles() -> Optional[set]:
+    """Profiles a client may name, or None when unrestricted.
+
+    ``TG_HTTP_ALLOWED_PROFILES=a,b`` narrows it.
+    """
+    raw = os.getenv("TG_HTTP_ALLOWED_PROFILES", "").strip()
+    if not raw:
+        return None
+    return {p.strip().lower() for p in raw.split(",") if p.strip()}
 
 
 def _read_headers(scope_headers: Iterable[Tuple[bytes, bytes]]) -> Dict[str, str]:
@@ -65,39 +89,100 @@ def _read_headers(scope_headers: Iterable[Tuple[bytes, bytes]]) -> Dict[str, str
     return out
 
 
-def _parse_credentials(headers: Mapping[str, str]) -> Optional[Dict[str, Any]]:
-    """Extract TigerGraph credentials from request headers.
+def _resolve(headers: Mapping[str, str]) -> Tuple[Optional[Dict[str, Any]], int, str]:
+    """Resolve the connection config for one request.
 
-    Returns ``None`` if no host is supplied or no credential mechanism is
-    present. A non-None return means the headers are well-formed; it does
-    NOT mean the credentials are valid against TigerGraph.
+    Server-side profiles supply topology (and optionally credentials); request
+    headers override any field, for that session only. Four shapes are
+    supported:
+
+    ==============================  ===========================================
+    Headers sent                    Result
+    ==============================  ===========================================
+    X-TG-Profile only               that profile's topology + its credentials
+    X-TG-Profile + credentials      that profile's topology, caller's identity
+    credentials only                'default' topology, caller's identity
+    none                            'default' profile as configured
+    ==============================  ===========================================
+
+    Whether a profile carries credentials is the operator's decision when
+    writing the env file: a profile with credentials is a shared identity
+    usable by anyone who can reach the server, which suits a demo or
+    single-user deployment; a profile with only topology forces every caller
+    to identify itself.
+
+    Returns ``(config, 0, "")`` on success, or ``(None, status, reason)``.
+    Topology problems — an unknown profile, no resolvable host — are ``400``;
+    a missing identity is ``401``. The two are kept distinct so a caller can
+    tell "I addressed the wrong server" from "my credentials are wrong".
     """
-    host = headers.get(HOST_HEADER)
+    # X-TG-Profile names which configured profile this session's connection is
+    # built from. Absent, it is the server's default profile. Credentials the
+    # request supplies always win over the profile's own.
+    profile = resolve_profile_name(headers.get(PROFILE_HEADER))
+
+    allowed = _allowed_profiles()
+    if allowed is not None and profile not in allowed:
+        return None, 400, f"Profile '{profile}' is not available on this server."
+    if profile != DEFAULT_PROFILE and profile not in list_env_profiles():
+        return None, 400, (
+            f"Unknown profile '{profile}'. Profiles are defined in the server's "
+            "environment; omit X-TG-Profile to use the default."
+        )
+
+    topology = profile_topology(profile)
+
+    host = headers.get(HOST_HEADER) or topology["host"]
     if not host:
-        return None
+        return None, 400, (
+            f"No TigerGraph host: profile '{profile}' defines none and no "
+            "X-TG-Host header was sent."
+        )
 
     api_token = headers.get(API_TOKEN_HEADER, "")
     jwt_token = headers.get(JWT_TOKEN_HEADER, "")
     username = headers.get(USERNAME_HEADER, "")
     password = headers.get(PASSWORD_HEADER, "")
+    secret = headers.get(SECRET_HEADER, "")
 
-    if not (api_token or jwt_token or (username and password)):
-        return None
+    if not (api_token or jwt_token or secret or (username and password)):
+        env_creds = profile_credentials(profile)
+        api_token = env_creds["api_token"]
+        jwt_token = env_creds["jwt_token"]
+        secret = env_creds["secret"]
+        username = env_creds["username"]
+        password = env_creds["password"]
+        if not (api_token or jwt_token or secret or (username and password)):
+            return None, 401, (
+                f"No credentials: profile '{profile}' defines none, so the "
+                "request must send X-TG-Api-Token, X-TG-Jwt-Token, or "
+                "X-TG-Username with X-TG-Password."
+            )
 
     return {
+        "profile": profile,
         "host": host,
-        "graphname": headers.get(GRAPHNAME_HEADER, ""),
+        "graphname": headers.get(GRAPHNAME_HEADER) or topology["graphname"],
         "username": username or "tigergraph",
         "password": password or "tigergraph",
-        "secret": headers.get(SECRET_HEADER, ""),
+        "secret": secret,
         "api_token": api_token,
         "jwt_token": jwt_token,
-        "restpp_port": headers.get(RESTPP_PORT_HEADER, "9000"),
-        "gs_port": headers.get(GS_PORT_HEADER, "14240"),
-        "ssl_port": headers.get(SSL_PORT_HEADER, "443"),
-        "tg_cloud": headers.get(TG_CLOUD_HEADER, "false").lower() == "true",
-        "cert_path": headers.get(CERT_PATH_HEADER) or None,
-    }
+        "restpp_port": headers.get(RESTPP_PORT_HEADER) or topology["restpp_port"],
+        "gs_port": headers.get(GS_PORT_HEADER) or topology["gs_port"],
+        "ssl_port": headers.get(SSL_PORT_HEADER) or topology["ssl_port"],
+        "tg_cloud": (
+            headers[TG_CLOUD_HEADER].lower() == "true"
+            if TG_CLOUD_HEADER in headers else topology["tg_cloud"]
+        ),
+        "cert_path": headers.get(CERT_PATH_HEADER) or topology["cert_path"],
+    }, 0, ""
+
+
+def _parse_credentials(headers: Mapping[str, str]) -> Optional[Dict[str, Any]]:
+    """Config for this request, or None if one could not be assembled."""
+    creds, _, _ = _resolve(headers)
+    return creds
 
 
 def _build_connection(creds: Mapping[str, Any]) -> AsyncTigerGraphConnection:
@@ -129,14 +214,10 @@ async def _validate(creds: Dict[str, Any]) -> None:
     """
     conn = _build_connection(creds)
     try:
+        await validate_connection(conn)
         if not creds.get("api_token") and not creds.get("jwt_token"):
-            # Password auth: minting a token also validates the password.
-            await conn.getToken()
             if getattr(conn, "apiToken", None):
                 creds["api_token"] = conn.apiToken
-        else:
-            # Token auth: a cheap authenticated ping is enough.
-            await conn.echo()
     finally:
         try:
             await conn.aclose()
@@ -165,16 +246,17 @@ class CredentialHeadersMiddleware:
             return
 
         headers = _read_headers(scope.get("headers") or [])
-        creds = _parse_credentials(headers)
+        creds, status, reason = _resolve(headers)
         if creds is None:
-            await _send_401(
-                send,
-                "Missing TigerGraph credentials. Set X-TG-Host plus one of "
-                "(X-TG-Api-Token, X-TG-Jwt-Token, X-TG-Username + X-TG-Password).",
-            )
+            await _send_error(send, status, reason)
             return
 
-        if self.validate:
+        # Credentials are proven when the session's connection is established.
+        # A client's headers are fixed for the life of its session, so probing
+        # again on later requests re-proves something that cannot have changed;
+        # the session's connection pool holds the validated connection.
+        establishing = not headers.get(MCP_SESSION_HEADER)
+        if self.validate and establishing:
             try:
                 await _validate(creds)
             except TigerGraphException as e:
@@ -182,14 +264,29 @@ class CredentialHeadersMiddleware:
                     "TigerGraph auth rejected for host=%s: %s",
                     creds.get("host"), e,
                 )
-                await _send_401(send, f"TigerGraph authentication failed: {e}")
+                await _send_error(send, 401, f"TigerGraph rejected the credentials: {e}")
                 return
-            except Exception as e:  # network errors, bad host, etc.
+            except asyncio.TimeoutError:
+                logger.warning("Timed out reaching TigerGraph at host=%s",
+                               creds.get("host"))
+                await _send_error(
+                    send, 502,
+                    f"Could not reach TigerGraph at {creds.get('host')}: "
+                    f"timed out after {validate_timeout():g}s. Check the host, "
+                    "ports, and network path.",
+                )
+                return
+            except Exception as e:
+                # Not an auth failure: the server could not be reached at all,
+                # so say that rather than blaming the credentials.
                 logger.warning(
-                    "TigerGraph auth probe error for host=%s: %s",
+                    "Could not reach TigerGraph at host=%s: %s",
                     creds.get("host"), e,
                 )
-                await _send_401(send, f"TigerGraph authentication failed: {e}")
+                await _send_error(
+                    send, 502,
+                    f"Could not reach TigerGraph at {creds.get('host')}: {e}",
+                )
                 return
 
         token = set_pending_credentials(creds)
@@ -199,15 +296,17 @@ class CredentialHeadersMiddleware:
             reset_pending_credentials(token)
 
 
-async def _send_401(send, message: str) -> None:
+async def _send_error(send, status: int, message: str) -> None:
     body = json.dumps({"error": message}).encode("utf-8")
+    headers = [
+        (b"content-type", b"application/json"),
+        (b"content-length", str(len(body)).encode("latin-1")),
+    ]
+    if status == 401:
+        headers.append((b"www-authenticate", b'Bearer realm="tigergraph-mcp"'))
     await send({
         "type": "http.response.start",
-        "status": 401,
-        "headers": [
-            (b"content-type", b"application/json"),
-            (b"content-length", str(len(body)).encode("latin-1")),
-            (b"www-authenticate", b'Bearer realm="tigergraph-mcp"'),
-        ],
+        "status": status,
+        "headers": headers,
     })
     await send({"type": "http.response.body", "body": body})

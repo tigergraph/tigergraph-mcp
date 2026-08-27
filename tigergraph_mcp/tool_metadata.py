@@ -494,7 +494,7 @@ TOOL_METADATA: Dict[str, ToolMetadata] = {
         examples=[]
     ),
 
-    # New tools (1.1.0)
+    # New tools (1.0.2)
 
     "tigergraph__update_schema": ToolMetadata(
         category=ToolCategory.SCHEMA,
@@ -947,11 +947,32 @@ TOOL_METADATA: Dict[str, ToolMetadata] = {
     "tigergraph__create_data_source": ToolMetadata(
         category=ToolCategory.LOADING,
         prerequisites=[],
-        related_tools=["tigergraph__get_data_source", "tigergraph__update_data_source"],
+        related_tools=[
+            "tigergraph__get_data_source",
+            "tigergraph__update_data_source",
+            "tigergraph__get_data_source_types",
+        ],
         common_next_steps=["tigergraph__create_loading_job"],
-        use_cases=["Configuring an S3, Kafka, or other external data source"],
+        use_cases=[
+            "Configuring an S3, GCS, Azure Blob, Kafka, or local data source",
+            "Connecting a Snowflake warehouse for query-based loading",
+        ],
         complexity="intermediate",
-        keywords=["data", "source", "create", "s3", "kafka", "configure"],
+        keywords=["data", "source", "create", "s3", "kafka", "snowflake", "warehouse", "configure"],
+        examples=[]
+    ),
+
+    "tigergraph__get_data_source_types": ToolMetadata(
+        category=ToolCategory.LOADING,
+        prerequisites=[],
+        related_tools=["tigergraph__create_data_source"],
+        common_next_steps=["tigergraph__create_data_source"],
+        use_cases=[
+            "Discovering which data source types are supported",
+            "Looking up the configuration keys a data source type requires",
+        ],
+        complexity="basic",
+        keywords=["data", "source", "types", "keys", "config", "snowflake", "supported"],
         examples=[]
     ),
 
@@ -1015,7 +1036,11 @@ TOOL_METADATA: Dict[str, ToolMetadata] = {
         prerequisites=["tigergraph__create_data_source"],
         related_tools=["tigergraph__create_loading_job"],
         common_next_steps=["tigergraph__create_loading_job"],
-        use_cases=["Previewing first N rows of an S3 data file", "Data exploration before loading"],
+        use_cases=[
+            "Previewing first N rows of a data file",
+            "Sampling a warehouse query before loading",
+            "Data exploration before loading",
+        ],
         complexity="basic",
         keywords=["preview", "sample", "data", "s3", "explore", "inspect"],
         examples=[]

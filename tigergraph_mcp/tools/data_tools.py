@@ -54,7 +54,29 @@ class EdgeMapping(BaseModel):
 class FileConfig(BaseModel):
     """Configuration for a single data file in a loading job."""
     file_alias: str = Field(..., description="Alias for the file (used in DEFINE FILENAME).")
-    file_path: Optional[str] = Field(None, description="Path to the file. If not provided, data will be passed at runtime.")
+    file_path: Optional[str] = Field(
+        None,
+        description=(
+            "Path to the file. If not provided, data will be passed at runtime. "
+            "To read from a data source instead, use 'data_source' and 'query'."
+        ),
+    )
+    data_source: Optional[str] = Field(
+        None,
+        description=(
+            "Name of a data source to read from instead of a file, e.g. a Snowflake "
+            "data source created with create_data_source. Requires 'query'."
+        ),
+    )
+    query: Optional[str] = Field(
+        None,
+        description=(
+            "SQL query executed against 'data_source', e.g. "
+            "'SELECT id, name FROM mydb.myschema.Person'. Columns are referenced by "
+            "position in this SELECT list, so list them explicitly rather than using "
+            "SELECT * when the mapping must stay stable."
+        ),
+    )
     separator: str = Field(",", description="Field separator character.")
     header: str = Field("true", description="Whether the file has a header row ('true' or 'false').")
     eol: str = Field("\\n", description="End-of-line character.")
@@ -71,7 +93,7 @@ class FileConfig(BaseModel):
 
 class CreateLoadingJobToolInput(BaseModel):
     """Input schema for creating a loading job."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     job_name: str = Field(..., description="Name for the loading job.")
     files: List[FileConfig] = Field(
@@ -88,7 +110,7 @@ class CreateLoadingJobToolInput(BaseModel):
 
 class RunLoadingJobWithFileToolInput(BaseModel):
     """Input schema for running a loading job with a file."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     file_path: str = Field(..., description="Absolute path to the data file to load. Example: '/home/user/data/persons.csv'")
     file_tag: str = Field(..., description="The name of file variable in the loading job (DEFINE FILENAME <fileTag>).")
@@ -101,7 +123,7 @@ class RunLoadingJobWithFileToolInput(BaseModel):
 
 class RunLoadingJobWithDataToolInput(BaseModel):
     """Input schema for running a loading job with inline data."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     data: str = Field(..., description="The data string to load (CSV, JSON, etc.). Example: 'user1,Alice\\nuser2,Bob'")
     file_tag: str = Field(..., description="The name of file variable in the loading job (DEFINE FILENAME <fileTag>).")
@@ -114,20 +136,20 @@ class RunLoadingJobWithDataToolInput(BaseModel):
 
 class GetLoadingJobsToolInput(BaseModel):
     """Input schema for listing loading jobs."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
 
 
 class GetLoadingJobStatusToolInput(BaseModel):
     """Input schema for getting loading job status."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     job_id: str = Field(..., description="The ID of the loading job to check status.")
 
 
 class DropLoadingJobToolInput(BaseModel):
     """Input schema for dropping a loading job."""
-    profile: Optional[str] = Field(None, description="Connection profile name. If not provided, uses TG_PROFILE env var or 'default'. Use 'list_connections' to see available profiles.")
+    profile: Optional[str] = Field(None, description="Connection profile name. Omit to use the active default profile. Use 'list_connections' to see available profiles.")
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     job_name: str = Field(..., description="The name of the loading job to drop.")
 
@@ -189,6 +211,50 @@ def _format_column(column: Union[str, int]) -> str:
     return f'$"{column}"'
 
 
+def _validate_file_configs(files: List[Dict[str, Any]]) -> List[str]:
+    """Check file entries for combinations the GSQL generator cannot express."""
+    errors: List[str] = []
+    for index, file_config in enumerate(files):
+        alias = file_config.get("file_alias", f"#{index}")
+        source = file_config.get("data_source")
+        query = file_config.get("query")
+        path = file_config.get("file_path")
+
+        if source and path:
+            errors.append(
+                f"File '{alias}' sets both 'file_path' and 'data_source'; use one or the other."
+            )
+        if source and not query:
+            errors.append(f"File '{alias}' sets 'data_source' but no 'query'.")
+        if query and not source:
+            errors.append(f"File '{alias}' sets 'query' but no 'data_source'.")
+
+        if source:
+            named_columns = []
+            for node_mapping in file_config.get("node_mappings", []):
+                named_columns += [
+                    c for c in node_mapping.get("attribute_mappings", {}).values()
+                    if isinstance(c, str)
+                ]
+            for edge_mapping in file_config.get("edge_mappings", []):
+                named_columns += [
+                    c for c in edge_mapping.get("attribute_mappings", {}).values()
+                    if isinstance(c, str)
+                ]
+                named_columns += [
+                    c for c in (edge_mapping.get("source_column"), edge_mapping.get("target_column"))
+                    if isinstance(c, str)
+                ]
+            if named_columns:
+                errors.append(
+                    f"File '{alias}' reads from data source '{source}' but maps columns "
+                    f"by name ({', '.join(sorted(set(named_columns)))}). Warehouse "
+                    "queries reference columns by their position in the SELECT list, "
+                    "so use integer indices starting at 0."
+                )
+    return errors
+
+
 def _generate_loading_job_gsql(
     graph_name: str,
     job_name: str,
@@ -201,7 +267,11 @@ def _generate_loading_job_gsql(
     for file_config in files:
         alias = file_config["file_alias"]
         path = file_config.get("file_path")
-        if path:
+        source = file_config.get("data_source")
+        query = file_config.get("query")
+        if source and query:
+            define_files.append(f'DEFINE FILENAME {alias} = "${source}:{query}";')
+        elif path:
             define_files.append(f'DEFINE FILENAME {alias} = "{path}";')
         else:
             define_files.append(f"DEFINE FILENAME {alias};")
@@ -215,14 +285,18 @@ def _generate_loading_job_gsql(
         eol = file_config.get("eol", "\\n")
         quote = file_config.get("quote")
 
-        # Build USING clause
-        using_parts = [
-            f'SEPARATOR="{separator}"',
-            f'HEADER="{header}"',
-            f'EOL="{eol}"'
-        ]
-        if quote:
-            using_parts.append(f'QUOTE="{quote}"')
+        # Build USING clause. A data source query returns typed columns, so the
+        # header and end-of-line options that apply to files are omitted.
+        if file_config.get("data_source"):
+            using_parts = [f'SEPARATOR="{separator}"']
+        else:
+            using_parts = [
+                f'SEPARATOR="{separator}"',
+                f'HEADER="{header}"',
+                f'EOL="{eol}"'
+            ]
+            if quote:
+                using_parts.append(f'QUOTE="{quote}"')
         using_clause = "USING " + ", ".join(using_parts) + ";"
 
         # Build mapping statements
@@ -294,6 +368,20 @@ async def create_loading_job(
     graph_name: Optional[str] = None,
 ) -> List[TextContent]:
     """Create a loading job from structured configuration."""
+    config_errors = _validate_file_configs(files)
+    if config_errors:
+        return format_error(
+            operation="create_loading_job",
+            error=ValueError("; ".join(config_errors)),
+            context={"job_name": job_name},
+            suggestions=[
+                "Use either 'file_path' or the 'data_source' + 'query' pair for each file",
+                "Warehouse queries reference columns by position in the SELECT list, "
+                "so attribute_mappings must use integer indices",
+                "List data sources: get_all_data_sources()",
+            ],
+        )
+
     try:
         conn = get_connection(profile=profile, graph_name=graph_name)
 

@@ -90,6 +90,7 @@ from .datasource_tools import (
     drop_data_source_tool,
     get_all_data_sources_tool,
     drop_all_data_sources_tool,
+    get_data_source_types_tool,
     preview_sample_data_tool,
 )
 from .discovery_tools import (
@@ -184,6 +185,7 @@ def get_all_tools() -> List[Tool]:
         drop_data_source_tool,
         get_all_data_sources_tool,
         drop_all_data_sources_tool,
+        get_data_source_types_tool,
         preview_sample_data_tool,
         # Discovery tools
         discover_tools_tool,
