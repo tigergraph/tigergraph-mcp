@@ -105,7 +105,21 @@ For quick tasks or straightforward tool invocations directly in your editor:
 tigergraph-mcp
 ```
 
-Credentials come from env vars or a `.env` file. This is the right mode for Claude Code, Cursor, GitHub Copilot Chat, or any single-user IDE integration.
+The server talks MCP over its own **stdin and stdout**: it reads JSON-RPC messages from
+standard input and writes replies to standard output, then exits when standard input
+closes. Run it in a terminal and it simply waits for messages — there is no prompt and no
+human-facing console. You normally never start it this way; the MCP client (Claude Code,
+Cursor, GitHub Copilot Chat, a LangChain agent) spawns it as a subprocess and owns the
+pipes. Running it by hand is mainly useful for checking that it starts:
+
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"manual","version":"1"}}}' \
+  | tigergraph-mcp
+```
+
+Because the client owns the process, credentials must reach it as environment variables —
+from a `.env` file, or from the client's own `env` mapping. This is the right mode for any
+single-user IDE integration.
 
 With a custom `.env` file:
 
@@ -136,6 +150,11 @@ tigergraph-mcp --transport streamable-http --host 0.0.0.0 --port 8000
 # legacy SSE shape:
 tigergraph-mcp --transport sse --host 0.0.0.0 --port 8000
 ```
+
+Here the server **binds the chosen port and serves MCP over HTTP**, staying up until you
+stop it — a long-lived service you start once (under systemd, a container, or whatever
+supervises it), not a process a client spawns. Many clients connect to it concurrently,
+and it does not read standard input at all.
 
 Each MCP session gets its own connection pool, so concurrent users never share state. Clients connect at `http://<host>:<port>/mcp/` — **note the trailing slash**; `/mcp` returns a `307` redirect that some clients will not follow on `POST`. The mount path is configurable with `--mount-path`.
 
