@@ -11,6 +11,7 @@ Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact w
   - [Running the MCP Server](#running-the-mcp-server)
   - [Configuration](#configuration)
   - [Multiple Connection Profiles](#multiple-connection-profiles)
+    - [Helping the agent pick the right environment](#helping-the-agent-pick-the-right-environment)
   - [Multi-user Deployments (HTTP/SSE)](#multi-user-deployments-httpsse)
   - [Using with Existing Connection](#using-with-existing-connection)
 - [Client Examples](#client-examples)
@@ -257,19 +258,70 @@ Agent:
   → gsql(profile="prod", command="SHOW VERTEX Person")
 ```
 
-A minimal system prompt that lets the agent discover profiles at runtime:
+#### Helping the agent pick the right environment
+
+`list_connections` reports each profile's name **and its host**, so an agent can resolve
+a site the user names — a URL, a hostname, or a nickname — to the profile that reaches it,
+instead of relying on the profile name alone:
+
+```json
+{
+  "default_profile": "default",
+  "profiles": [
+    {"profile": "default", "host": "https://staging.acme.io",      "username": "dev",     "is_default": true,  "connected": true},
+    {"profile": "eu",      "host": "https://eu.acme.tgcloud.io",   "username": "analyst", "is_default": false, "connected": false},
+    {"profile": "prod",    "host": "https://acme.tgcloud.io",      "username": "analyst", "is_default": false, "connected": false}
+  ]
+}
+```
+
+A system prompt that puts that to work:
 
 ```text
-You are a TigerGraph assistant with access to multiple environments
-through the tigergraph-mcp server.
+You are a TigerGraph assistant. The tigergraph-mcp server may be configured
+with several environments, each identified by a profile name.
 
-At the start of a session — or whenever the user references an
-environment you haven't seen yet — call the `list_connections` tool
-to discover available profiles. Do not assume or hardcode profile names.
+Discovering profiles
+- Call `list_connections` before your first data access, and again whenever
+  the user mentions an environment you have not seen.
+- Each profile reports its name, host, and username, which one is the
+  default, and which are already connected.
+- Never invent or hardcode a profile name.
 
-Most tools accept an optional `profile` argument. When the user names
-an environment, pass `profile="<name>"` to the tool calls in that turn.
-If the user doesn't specify a profile, use the default profile.
+Choosing one
+- If the user names a profile ("use staging"), use that profile.
+- If the user names a site, host, or URL ("acme.tgcloud.io", "the EU
+  cluster", "production"), match it against the `host` and `profile`
+  fields and use the profile that reaches it.
+- If more than one profile matches, or none does, show the candidates
+  with their hosts and ask which to use. Do not guess.
+- If the user says nothing about an environment, use the default profile
+  and mention which one you used.
+
+Using one
+- Pass `profile="<name>"` on every tool call meant for that environment.
+- A single turn may use different profiles when the user compares
+  environments.
+```
+
+With that prompt, a site named in plain language resolves to a profile:
+
+```
+User: What graphs are on acme.tgcloud.io?
+
+Agent:
+  → list_connections()
+      default → https://staging.acme.io     (default)
+      eu      → https://eu.acme.tgcloud.io
+      prod    → https://acme.tgcloud.io     ← matches the host the user named
+  → list_graphs(profile="prod")
+
+  "On prod (https://acme.tgcloud.io): 4 graphs — ..."
+
+User: And the EU one?
+
+Agent:
+  → list_graphs(profile="eu")
 ```
 
 Omitting `profile`, or passing `"default"`, uses the default profile — `TG_DEFAULT_PROFILE` if set (or its alias `TG_PROFILE`), otherwise the unprefixed `TG_*` variables.
