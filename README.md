@@ -279,9 +279,9 @@ Agent:
 
 #### Helping the agent pick the right environment
 
-`list_connections` reports each profile's name **and its host**, so an agent can resolve
-a site the user names — a URL, a hostname, or a nickname — to the profile that reaches it,
-instead of relying on the profile name alone:
+Users normally name an environment the way it is configured — "staging", "the prod
+cluster". `list_connections` reports each profile's name **and its host**, so the agent can
+also resolve the occasional bare hostname or URL to the profile that reaches it:
 
 ```json
 {
@@ -294,8 +294,8 @@ instead of relying on the profile name alone:
 }
 ```
 
-Note that `prod`'s host carries no hint of the profile name, which is exactly why the
-agent should match on `host` rather than guessing from the name.
+Note that `prod`'s host carries no hint of the profile name, so a user who names that
+host cannot be served by guessing from profile names alone.
 
 A system prompt that puts that to work:
 
@@ -311,12 +311,15 @@ Discovering profiles
 - Never invent or hardcode a profile name.
 
 Choosing one
-- If the user names a profile ("use staging"), use that profile.
-- If the user names a site, host, or URL ("acme.tgcloud.io", "the EU
-  cluster", "production"), match it against the `host` and `profile`
-  fields and use the profile that reaches it.
-- If more than one profile matches, or none does, show the candidates
-  with their hosts and ask which to use. Do not guess.
+- Users normally name an environment, not a machine. If the user names a
+  profile ("use staging", "on the prod cluster"), use that profile.
+- If the user names a host or URL instead, match it against the `host`
+  field. Several profiles may share one host, differing only in the user
+  they connect as. In that case run the request against every matching
+  profile and report the results per profile, rather than asking which
+  one was meant.
+- If nothing matches what the user named, say so and list the configured
+  profiles with their hosts. Do not guess.
 - If the user says nothing about an environment, use the default profile
   and mention which one you used.
 
@@ -329,21 +332,26 @@ Using one
 With that prompt, a site named in plain language resolves to a profile:
 
 ```
-User: What graphs are on mycompany.i.tgcloud.io?
+User: How many vertices does MyGraph have on staging?
+
+Agent:
+  → get_vertex_count(profile="staging", graph_name="MyGraph")
+  "On staging: 1,204 vertices."
+
+User: And on mycompany.i.tgcloud.io?          # a host, not an environment
 
 Agent:
   → list_connections()
-      dev     → http://localhost                (default)
-      prod    → https://mycompany.i.tgcloud.io  ← matches the host the user named
-      staging → https://tg-staging.example.com
-  → list_graphs(profile="prod")
+      dev       → http://localhost                (default)
+      prod      → https://mycompany.i.tgcloud.io  ← matches
+      prod_ro   → https://mycompany.i.tgcloud.io  ← also matches
+      staging   → https://tg-staging.example.com
+  → get_vertex_count(profile="prod",    graph_name="MyGraph")
+  → get_vertex_count(profile="prod_ro", graph_name="MyGraph")
 
-  "On prod (https://mycompany.i.tgcloud.io): 4 graphs — ..."
-
-User: And on staging?
-
-Agent:
-  → list_graphs(profile="staging")
+  "Two profiles reach that host:
+     prod (as analyst):     1,204 vertices
+     prod_ro (as readonly): 1,204 vertices"
 ```
 
 Omitting `profile`, or passing `"default"`, uses the default profile — `TG_DEFAULT_PROFILE` if set (or its alias `TG_PROFILE`), otherwise the unprefixed `TG_*` variables.
