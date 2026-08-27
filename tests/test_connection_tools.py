@@ -362,5 +362,84 @@ class TestAuthenticateValidates(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"success": false', result[0].text)
 
 
+class TestConnectionToolsAreSessionAware(unittest.IsolatedAsyncioTestCase):
+    """In HTTP mode these must describe the caller's session, not the server's
+    process-global state, or an agent cannot discover what it may use."""
+
+    ENV = {
+        "TG_DEFAULT_PROFILE": "demo",
+        "TG_HOST": "http://plain", "TG_USERNAME": "u", "TG_PASSWORD": "p",
+        "DEMO_TG_HOST": "http://demo", "DEMO_TG_USERNAME": "du",
+        "DEMO_TG_PASSWORD": "p",
+        "PROD_TG_HOST": "http://prod", "PROD_TG_USERNAME": "pu",
+        "PROD_TG_PASSWORD": "p",
+    }
+
+    def _session(self):
+        cm = SessionConnectionManager()
+        cm.register_connection("demo", AsyncTigerGraphConnection(
+            host="http://from-headers", username="alice", password="p"))
+        return cm
+
+    def _body(self, result):
+        import json
+        return json.loads(result[0].text.split("```json")[1].split("```")[0])["data"]
+
+    async def test_lists_every_configured_profile(self):
+        with mock.patch.dict(os.environ, self.ENV, clear=False):
+            with use_session_manager(self._session()):
+                data = self._body(await list_connections())
+        self.assertEqual(
+            sorted(p["profile"] for p in data["profiles"]),
+            ["default", "demo", "prod"],
+        )
+
+    async def test_reports_which_profile_is_the_default(self):
+        with mock.patch.dict(os.environ, self.ENV, clear=False):
+            with use_session_manager(self._session()):
+                data = self._body(await list_connections())
+        self.assertEqual(data["default_profile"], "demo")
+        self.assertTrue(next(p for p in data["profiles"]
+                             if p["profile"] == "demo")["is_default"])
+
+    async def test_marks_which_profiles_are_open(self):
+        with mock.patch.dict(os.environ, self.ENV, clear=False):
+            with use_session_manager(self._session()):
+                data = self._body(await list_connections())
+        open_now = {p["profile"] for p in data["profiles"] if p["connected"]}
+        self.assertEqual(open_now, {"demo"})
+
+    async def test_open_profiles_report_the_live_connection(self):
+        # Credentials supplied with the request override the environment, so
+        # reporting the env values would be misleading.
+        with mock.patch.dict(os.environ, self.ENV, clear=False):
+            with use_session_manager(self._session()):
+                data = self._body(await list_connections())
+        demo = next(p for p in data["profiles"] if p["profile"] == "demo")
+        self.assertEqual(demo["host"], "http://from-headers")
+        self.assertEqual(demo["username"], "alice")
+
+    async def test_unopened_profiles_report_their_configuration(self):
+        with mock.patch.dict(os.environ, self.ENV, clear=False):
+            with use_session_manager(self._session()):
+                data = self._body(await list_connections())
+        prod = next(p for p in data["profiles"] if p["profile"] == "prod")
+        self.assertEqual(prod["host"], "http://prod")
+
+    async def test_show_connection_defaults_to_the_default_profile(self):
+        with mock.patch.dict(os.environ, self.ENV, clear=False):
+            with use_session_manager(self._session()):
+                info = self._body(await show_connection())
+        self.assertEqual(info["profile"], "demo")
+        self.assertEqual(info["host"], "http://from-headers")
+
+    async def test_show_connection_reports_an_unopened_profile(self):
+        with mock.patch.dict(os.environ, self.ENV, clear=False):
+            with use_session_manager(self._session()):
+                info = self._body(await show_connection(profile="prod"))
+        self.assertEqual(info["host"], "http://prod")
+        self.assertFalse(info["connected"])
+
+
 if __name__ == "__main__":
     unittest.main()

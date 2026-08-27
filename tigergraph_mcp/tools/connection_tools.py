@@ -21,6 +21,7 @@ from pyTigerGraph import AsyncTigerGraphConnection
 from ..tool_names import TigerGraphToolName
 from ..connection_manager import (
     default_profile_name,
+    list_env_profiles,
     resolve_profile_name,
     validate_connection,
     ConnectionManager,
@@ -110,16 +111,39 @@ authenticate_tool = Tool(
 async def list_connections() -> List[TextContent]:
     """List all available connection profiles."""
     try:
-        profiles = ConnectionManager.list_profiles()
+        # The profiles a caller may name are the ones the server configures,
+        # which is the same set in stdio and in an HTTP session.
+        profiles = list_env_profiles()
+        default = default_profile_name()
+        if default not in profiles:
+            profiles.append(default)
+        profiles = sorted(profiles)
+
+        active = get_active_manager()
+        open_now = set(getattr(active, "_connection_pool", {}))
+
         profile_details = []
         for p in profiles:
-            info = ConnectionManager.get_profile_info(p)
+            info = dict(ConnectionManager.get_profile_info(p))
+            info["is_default"] = p == default
+            info["connected"] = p in open_now
+            conn = getattr(active, "_connection_pool", {}).get(p)
+            if conn is not None:
+                # Reflect the live connection, which may differ from the
+                # environment when credentials arrived with the request.
+                info["host"] = conn.host
+                info["username"] = conn.username
+                info["graphname"] = conn.graphname or ""
             profile_details.append(info)
 
         return format_success(
             operation="list_connections",
-            summary=f"Found {len(profiles)} connection profile(s): {', '.join(profiles)}",
-            data={"profiles": profile_details, "count": len(profiles)},
+            summary=(
+                f"Found {len(profiles)} connection profile(s): "
+                f"{', '.join(profiles)} (default: {default})"
+            ),
+            data={"profiles": profile_details, "count": len(profiles),
+                  "default_profile": default},
             suggestions=[
                 "Show details: show_connection(profile='<name>')",
                 "Use a profile: pass profile='<name>' to any tool",
@@ -135,9 +159,17 @@ async def list_connections() -> List[TextContent]:
 async def show_connection(profile: Optional[str] = None) -> List[TextContent]:
     """Show non-sensitive connection details for a profile."""
     try:
-        import os
-        effective = profile or os.getenv("TG_PROFILE", "default")
-        info = ConnectionManager.get_profile_info(effective)
+        effective = resolve_profile_name(profile)
+        info = dict(ConnectionManager.get_profile_info(effective))
+        info["is_default"] = effective == default_profile_name()
+
+        active = get_active_manager()
+        conn = getattr(active, "_connection_pool", {}).get(effective)
+        info["connected"] = conn is not None
+        if conn is not None:
+            info["host"] = conn.host
+            info["username"] = conn.username
+            info["graphname"] = conn.graphname or ""
 
         return format_success(
             operation="show_connection",

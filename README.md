@@ -240,7 +240,7 @@ Omitting the `profile` argument and passing `profile="default"` mean the same th
 
 #### Switching profiles per call
 
-Every tool accepts an optional `profile` argument, so an agent can route individual calls to different environments without restarting the server. Connections are pooled per profile and reused across calls.
+Every tool accepts an optional `profile` argument, so an agent can route individual calls to different environments without restarting the server. Connections are pooled per profile and reused across calls. `list_connections` reports the configured profiles, which one is the default, and which are currently connected — in HTTP mode scoped to the calling session.
 
 ```
 User: Compare the vertex count of MyGraph between staging and prod.
@@ -272,7 +272,7 @@ an environment, pass `profile="<name>"` to the tool calls in that turn.
 If the user doesn't specify a profile, use the default profile.
 ```
 
-Omitting `profile` falls back to `TG_PROFILE`, then `"default"`.
+Omitting `profile`, or passing `"default"`, uses the default profile — `TG_DEFAULT_PROFILE` if set (or its alias `TG_PROFILE`), otherwise the unprefixed `TG_*` variables.
 
 ### Multi-user Deployments (HTTP/SSE)
 
@@ -340,7 +340,7 @@ The HTTP server reads the same `.env` file and `TG_*` / `<PROFILE>_TG_*` variabl
 | Credential headers only | the `default` profile's topology, the caller's identity |
 | No headers | the `default` profile exactly as configured |
 
-`TG_PROFILE` names which profile acts as the default for requests that don't send `X-TG-Profile`; unset, the unprefixed `TG_*` vars are the default profile. Naming a profile that isn't defined is an error rather than a silent fallback. `TG_HTTP_ALLOWED_PROFILES=demo,staging` narrows which profiles clients may name.
+`TG_DEFAULT_PROFILE` (alias `TG_PROFILE`) names which profile acts as the default for requests that don't send `X-TG-Profile`; unset, the unprefixed `TG_*` variables are the default profile. Naming a profile the server does not define is an error rather than a silent fallback. `TG_HTTP_ALLOWED_PROFILES=demo,staging` narrows which profiles clients may name.
 
 A named profile uses its own credentials where it defines them, and the unprefixed `TG_*` ones where it does not — the same inheritance stdio uses. If no credentials are configured anywhere, every caller must supply their own.
 
