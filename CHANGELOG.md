@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`azure_blob` reached the server as an unsupported type**, so creating an Azure Blob data source always failed. TigerGraph's type is `abs`, and `azure_blob` is now translated to it.
 - A `type` key inside `config` no longer overrides the `data_source_type` argument when creating a data source.
 - The end-to-end workflow test skips itself when no TigerGraph is reachable instead of failing, so the test suite passes on a machine or CI runner without a database.
-- `list_connections` and `show_connection` describe the calling session rather than the server process. In HTTP mode they reported the server's own state, so an agent could not discover which profiles it may use, and an open connection was shown with its configured values instead of the credentials the request supplied. They now also report which profile is the default and which are connected.
+- `list_connections` lists only profiles a call can actually select, and it and `show_connection` describe the calling session rather than the server process. In HTTP mode they reported the server's own state, so an agent could not discover which profiles it may use, and an open connection was shown with its configured values instead of the credentials the request supplied. They now also report which profile is the default and which are connected.
 - `authenticate` registers its credentials under whichever profile is the default, so a tool call that omits `profile` uses them. It previously always wrote to a profile literally named `default`, which had no effect when `TG_DEFAULT_PROFILE` named another one.
 
 ### Removed

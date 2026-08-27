@@ -113,10 +113,14 @@ async def list_connections() -> List[TextContent]:
     try:
         # The profiles a caller may name are the ones the server configures,
         # which is the same set in stdio and in an HTTP session.
-        profiles = list_env_profiles()
+        profiles = set(list_env_profiles())
         default = default_profile_name()
-        if default not in profiles:
-            profiles.append(default)
+        profiles.add(default)
+        if default != "default":
+            # "default" is a synonym for whichever profile is the default, so
+            # when that is another profile the literal name cannot be selected
+            # and listing it would offer a profile no call can reach.
+            profiles.discard("default")
         profiles = sorted(profiles)
 
         active = get_active_manager()

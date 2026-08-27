@@ -385,13 +385,36 @@ class TestConnectionToolsAreSessionAware(unittest.IsolatedAsyncioTestCase):
         import json
         return json.loads(result[0].text.split("```json")[1].split("```")[0])["data"]
 
-    async def test_lists_every_configured_profile(self):
+    async def test_omits_the_literal_default_when_it_is_not_selectable(self):
+        # With TG_DEFAULT_PROFILE set, passing "default" resolves to that
+        # profile, so listing a separate "default" would offer one no call
+        # can reach.
+        env = {k: v for k, v in self.ENV.items() if k != "TG_DEFAULT_PROFILE"}
+        env["TG_DEFAULT_PROFILE"] = "prod"
+        with mock.patch.dict(os.environ, env, clear=False):
+            with use_session_manager(self._session()):
+                data = self._body(await list_connections())
+        names = [p["profile"] for p in data["profiles"]]
+        self.assertNotIn("default", names)
+        self.assertEqual(data["default_profile"], "prod")
+
+    async def test_keeps_default_when_it_is_the_default(self):
+        env = {k: v for k, v in self.ENV.items() if k != "TG_DEFAULT_PROFILE"}
+        env["TG_DEFAULT_PROFILE"] = ""
+        with mock.patch.dict(os.environ, env, clear=False):
+            with use_session_manager(self._session()):
+                data = self._body(await list_connections())
+        self.assertIn("default", [p["profile"] for p in data["profiles"]])
+
+    async def test_lists_every_selectable_profile(self):
+        # "default" is absent because TG_DEFAULT_PROFILE names demo, so the
+        # literal name resolves there rather than to a profile of its own.
         with mock.patch.dict(os.environ, self.ENV, clear=False):
             with use_session_manager(self._session()):
                 data = self._body(await list_connections())
         self.assertEqual(
             sorted(p["profile"] for p in data["profiles"]),
-            ["default", "demo", "prod"],
+            ["demo", "prod"],
         )
 
     async def test_reports_which_profile_is_the_default(self):

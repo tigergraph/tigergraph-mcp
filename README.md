@@ -285,14 +285,17 @@ instead of relying on the profile name alone:
 
 ```json
 {
-  "default_profile": "default",
+  "default_profile": "dev",
   "profiles": [
-    {"profile": "default", "host": "https://staging.acme.io",      "username": "dev",     "is_default": true,  "connected": true},
-    {"profile": "eu",      "host": "https://eu.acme.tgcloud.io",   "username": "analyst", "is_default": false, "connected": false},
-    {"profile": "prod",    "host": "https://acme.tgcloud.io",      "username": "analyst", "is_default": false, "connected": false}
+    {"profile": "dev",     "host": "http://localhost",                "username": "tigergraph", "is_default": true,  "connected": true},
+    {"profile": "prod",    "host": "https://mycompany.i.tgcloud.io",  "username": "analyst",    "is_default": false, "connected": false},
+    {"profile": "staging", "host": "https://tg-staging.example.com",  "username": "analyst",    "is_default": false, "connected": false}
   ]
 }
 ```
+
+Note that `prod`'s host carries no hint of the profile name, which is exactly why the
+agent should match on `host` rather than guessing from the name.
 
 A system prompt that puts that to work:
 
@@ -326,21 +329,21 @@ Using one
 With that prompt, a site named in plain language resolves to a profile:
 
 ```
-User: What graphs are on acme.tgcloud.io?
+User: What graphs are on mycompany.i.tgcloud.io?
 
 Agent:
   → list_connections()
-      default → https://staging.acme.io     (default)
-      eu      → https://eu.acme.tgcloud.io
-      prod    → https://acme.tgcloud.io     ← matches the host the user named
+      dev     → http://localhost                (default)
+      prod    → https://mycompany.i.tgcloud.io  ← matches the host the user named
+      staging → https://tg-staging.example.com
   → list_graphs(profile="prod")
 
-  "On prod (https://acme.tgcloud.io): 4 graphs — ..."
+  "On prod (https://mycompany.i.tgcloud.io): 4 graphs — ..."
 
-User: And the EU one?
+User: And on staging?
 
 Agent:
-  → list_graphs(profile="eu")
+  → list_graphs(profile="staging")
 ```
 
 Omitting `profile`, or passing `"default"`, uses the default profile — `TG_DEFAULT_PROFILE` if set (or its alias `TG_PROFILE`), otherwise the unprefixed `TG_*` variables.
