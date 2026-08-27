@@ -506,6 +506,21 @@ async def main():
 asyncio.run(main())
 ```
 
+> **Note:** Instead of loading a `.env` file, you can pass credentials directly in
+> the `env` mapping:
+>
+> ```python
+>     "env": {
+>       "TG_HOST": "http://localhost",
+>       "TG_USERNAME": "tigergraph",
+>       "TG_PASSWORD": "tigergraph",
+>       "TG_GRAPHNAME": "MyGraph"
+>     }
+> ```
+>
+> Either way the credentials must be in `env`: the subprocess does not inherit
+> your shell environment.
+
 ### LangChain / LangGraph over HTTP
 
 The server is already running elsewhere; the client only connects. Credentials travel
