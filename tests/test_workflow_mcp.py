@@ -20,19 +20,20 @@ Run:
     pytest tests/test_workflow_mcp.py -v -s
     TG_HOST=http://my-host pytest tests/test_workflow_mcp.py -v -s
 
-Skip in CI (no live DB):
-    pytest tests/ -v --ignore=tests/test_workflow_mcp.py
+Without a reachable TigerGraph this test skips itself, so `pytest tests/`
+is safe to run anywhere.
 """
 
 import asyncio
 import json
 import os
 import re
+import socket
 import sys
 from datetime import timedelta
+from urllib.parse import urlparse
 
 import mcp.server as _mcp_server
-
 import pytest
 
 from mcp.client.session import ClientSession
@@ -73,6 +74,32 @@ WORKS_FOR_EDGES = [
 # ── Helpers ───────────────────────────────────────────────────────────
 
 _JSON_BLOCK = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
+
+
+def _tigergraph_reachable(timeout: float = 2.0) -> bool:
+    """Is a TigerGraph instance listening where this test would connect?
+
+    The test drives a real graph through the server, so without a database it
+    can only fail. Skipping keeps ``pytest tests/`` correct on a machine — or a
+    CI runner — that has no TigerGraph.
+    """
+    host = os.environ.get("TG_HOST", "http://localhost")
+    port = int(os.environ.get("TG_GS_PORT", "14240"))
+    hostname = urlparse(host if "//" in host else f"//{host}").hostname or "localhost"
+    try:
+        with socket.create_connection((hostname, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _tigergraph_reachable(),
+    reason=(
+        "no TigerGraph reachable at TG_HOST:TG_GS_PORT; "
+        "set TG_HOST/TG_USERNAME/TG_PASSWORD to run this integration test"
+    ),
+)
 
 
 def _server_params():
