@@ -9,6 +9,8 @@ Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact w
 - [Getting Started](#getting-started)
 - [Usage](#usage)
   - [Running the MCP Server](#running-the-mcp-server)
+    - [stdio (single user, one IDE/agent)](#stdio-default--single-user-one-ideagent)
+    - [Streamable HTTP / SSE (multi-user, shared server)](#streamable-http--sse-multi-user-shared-server)
   - [HTTP Mode End-to-End](#http-mode-end-to-end)
   - [Configuration](#configuration)
   - [Multiple Connection Profiles](#multiple-connection-profiles)
@@ -235,7 +237,7 @@ profile as configured.
   "servers": {
     "tigergraph-mcp-server": {
       "type": "http",
-      "url": "https://my-tg-mcp.internal/mcp/",
+      "url": "http://localhost:8000/mcp/",
       "headers": {
         "X-TG-Profile": "staging"
       }
@@ -243,6 +245,12 @@ profile as configured.
   }
 }
 ```
+
+The scheme is whatever the server is reachable on. `tigergraph-mcp` itself serves plain
+**HTTP** and does not terminate TLS, so use `http://` when connecting to it directly. A
+deployed instance normally sits behind a reverse proxy that adds TLS, in which case the
+URL is the proxy's — `https://my-tg-mcp.internal/mcp/`. Credentials travel in headers, so
+anything beyond localhost should be `https://`.
 
 To connect as yourself rather than as the profile's configured user, add your own
 credentials — keeping secrets out of the file by referencing the environment:

@@ -110,3 +110,18 @@ anonymous credentials provider governs actual access. Set `S3_ACCESS_KEY` and
 Ask the assistant to run `get_data_source_types` to see the keys any data source
 type requires. Beyond object storage, it can also connect Snowflake, BigQuery,
 PostgreSQL, and Iceberg — see [Loading from a data warehouse](warehouse_loading.md).
+
+## Reusing one server process
+
+The example calls `client.get_tools()`, which is the adapter's convenience API: the
+returned tools carry a connection *config*, so every tool call starts a fresh
+`tigergraph-mcp` subprocess. That is fine for a short script, but a long-running agent
+should hold one session open instead and bind the tools to it:
+
+```python
+async with client.session("tigergraph-mcp-server") as session:
+    tools = await load_mcp_tools(session)
+    # ... build and run your agents here; every tool call reuses this session
+```
+
+See [Client Examples](../README.md#client-examples) in the README for the full comparison.
