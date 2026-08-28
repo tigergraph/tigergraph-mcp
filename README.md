@@ -9,11 +9,13 @@ Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact w
 - [Getting Started](#getting-started)
 - [Usage](#usage)
   - [Running the MCP Server](#running-the-mcp-server)
-  - [HTTP Mode End-to-End](#http-mode-end-to-end)
+    - [stdio (single user, one IDE/agent)](#stdio-default--single-user-one-ideagent)
+    - [Streamable HTTP / SSE (multi-user, shared server)](#streamable-http--sse-multi-user-shared-server)
   - [Configuration](#configuration)
   - [Multiple Connection Profiles](#multiple-connection-profiles)
-    - [Helping the agent pick the right environment](#helping-the-agent-pick-the-right-environment)
-  - [Multi-user Deployments (HTTP/SSE)](#multi-user-deployments-httpsse)
+  - [HTTP Mode End-to-End](#http-mode-end-to-end)
+    - [Which connection a request gets](#which-connection-a-request-gets)
+    - [Serving several users](#serving-several-users)
   - [Using with Existing Connection](#using-with-existing-connection)
 - [Client Examples](#client-examples)
   - [LangChain / LangGraph over stdio](#langchain--langgraph-over-stdio)
@@ -153,142 +155,12 @@ tigergraph-mcp --transport sse --host 0.0.0.0 --port 8000
 ```
 
 Here the server **binds the chosen port and serves MCP over HTTP**, staying up until you
-stop it — a long-lived service you start once (under systemd, a container, or whatever
-supervises it), not a process a client spawns. Many clients connect to it concurrently,
-and it does not read standard input at all.
+stop it — a long-lived service you start once, not a process a client spawns. Many clients
+connect to it concurrently, each getting its own isolated TigerGraph connections, and it
+does not read standard input at all. Requires `uvicorn` and `starlette`.
 
-Each MCP session gets its own connection pool, so concurrent users never share state. Clients connect at `http://<host>:<port>/mcp/` — **note the trailing slash**; `/mcp` returns a `307` redirect that some clients will not follow on `POST`. The mount path is configurable with `--mount-path`.
-
-The server reads the same `.env` file and `TG_*` / `<PROFILE>_TG_*` variables as stdio, which supply each profile's topology and, optionally, its credentials. A client selects a profile with `X-TG-Profile` and may override any value with the other `X-TG-*` headers — see [Server-side profiles and header overrides](#server-side-profiles-and-header-overrides). With no headers at all, the default profile is used exactly as configured.
-
-Authenticate the HTTP endpoint itself with a reverse proxy / API gateway when exposing it beyond localhost. The MCP server checks TigerGraph credentials, not who may reach the URL.
-
-### HTTP Mode End-to-End
-
-Run one shared server that several people or services connect to. Five steps.
-
-**1. Install with the web stack**
-
-```bash
-pip install tigergraph-mcp uvicorn starlette
-```
-
-**2. Describe your TigerGraph sites**
-
-Put the environments in an env file. The unprefixed `TG_*` variables are the default
-profile; each `<NAME>_TG_*` group adds another. Credentials here are optional — include
-them for a shared or demo deployment, omit them to require every client to send its own:
-
-```bash
-# /etc/tigergraph-mcp/.env
-TG_DEFAULT_PROFILE=prod
-
-PROD_TG_HOST=https://mycompany.i.tgcloud.io
-PROD_TG_USERNAME=analyst
-PROD_TG_PASSWORD=...
-
-STAGING_TG_HOST=https://tg-staging.example.com
-STAGING_TG_USERNAME=analyst
-STAGING_TG_PASSWORD=...
-```
-
-**3. Start the server**
-
-```bash
-tigergraph-mcp --transport streamable-http \
-  --host 0.0.0.0 --port 8000 \
-  --env-file /etc/tigergraph-mcp/.env
-```
-
-It binds the port and serves until stopped, so run it under systemd, a container, or
-whatever supervises your services. Put a reverse proxy or API gateway in front for TLS
-and to control who may reach the URL.
-
-**4. Check that it is up**
-
-```bash
-curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8000/mcp/ \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
-```
-
-| Response | Meaning |
-|---|---|
-| `200` | Up, and the default profile's credentials work |
-| `400` | Up, but the request does not name a reachable site (e.g. an unknown profile) |
-| `401` | Up, but no usable credentials — the client must send them |
-| `502` | Up, but TigerGraph itself could not be reached |
-| `307` | You omitted the **trailing slash** on `/mcp/` |
-| connection refused | The server is not running |
-
-**5. Point a client at it**
-
-The URL is `http://<host>:<port>/mcp/` — keep the trailing slash. Credentials, when the
-client supplies them, travel as `X-TG-*` headers; omit them to use the server's default
-profile as configured.
-
-*Cursor, VS Code, or any editor using `mcp.json`:*
-
-```json
-{
-  "servers": {
-    "tigergraph-mcp-server": {
-      "type": "http",
-      "url": "https://my-tg-mcp.internal/mcp/",
-      "headers": {
-        "X-TG-Profile": "staging"
-      }
-    }
-  }
-}
-```
-
-To connect as yourself rather than as the profile's configured user, add your own
-credentials — keeping secrets out of the file by referencing the environment:
-
-```json
-      "headers": {
-        "X-TG-Host": "https://mycompany.i.tgcloud.io",
-        "X-TG-Api-Token": "${env:TG_API_TOKEN}"
-      }
-```
-
-*Python, LangChain, or any MCP SDK client:* see [Client Examples](#client-examples) for
-runnable versions of both. The HTTP client API differs between MCP SDK generations, so
-check which one you have with `pip show mcp`:
-
-```python
-# MCP SDK 2.x
-import httpx2
-from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
-
-async with httpx2.AsyncClient(headers={"X-TG-Profile": "staging"}) as http_client:
-    async with streamable_http_client(
-        "http://localhost:8000/mcp/", http_client=http_client
-    ) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            await session.call_tool("tigergraph__list_graphs", {})
-```
-
-```python
-# MCP SDK 1.x
-from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
-
-async with streamablehttp_client(
-    "http://localhost:8000/mcp/", headers={"X-TG-Profile": "staging"}
-) as (read, write, _):
-    async with ClientSession(read, write) as session:
-        await session.initialize()
-        await session.call_tool("tigergraph__list_graphs", {})
-```
-
-Which profile a call uses, and how an agent picks one, is covered in
-[Multiple Connection Profiles](#multiple-connection-profiles); the full header list is in
-[Server-side profiles and header overrides](#server-side-profiles-and-header-overrides).
+[HTTP Mode End-to-End](#http-mode-end-to-end) walks through configuring, starting, and
+connecting to one.
 
 ### Configuration
 
@@ -490,102 +362,154 @@ The reply names the environment behind each number and says nothing about `dev` 
 
 Omitting `profile`, or passing `"default"`, uses the default profile — `TG_DEFAULT_PROFILE` if set (or its alias `TG_PROFILE`), otherwise the unprefixed `TG_*` variables.
 
-### Multi-user Deployments (HTTP/SSE)
+### HTTP Mode End-to-End
 
-Run one shared `tigergraph-mcp` HTTP server and let each logged-in user supply their own TigerGraph credentials. Sessions are isolated: every user's connection pool, profile state, and tool list lives in its own `SessionConnectionManager`.
+Run one shared server that several people or services connect to. Five steps.
 
-#### Option 1 — Frontend backend owns the MCP client (recommended)
+**1. Install with the web stack**
 
-Your web backend authenticates the user, opens one MCP session per login carrying that
-user's TigerGraph credentials as `X-TG-*` headers, and routes all of their agent traffic
-through that session. The LLM never sees credentials.
-
-```text
-[user logs in]         backend validates the user (any IdP, or passthrough
-                       TigerGraph auth) and mints a short-lived TG token.
-[per-user session]     backend opens one MCP session with that user's
-                       X-TG-* headers; the server validates them once and
-                       builds that session's connection.
-[agent traffic]        every tool call reuses the same session, and so the
-                       same pooled TigerGraph connection.
-[user logs out]        backend closes its client; the session's pool is
-                       reclaimed after TG_HTTP_SESSION_IDLE_TIMEOUT.
+```bash
+pip install tigergraph-mcp uvicorn starlette
 ```
 
-Hold the session open for the user's lifetime rather than calling `get_tools()` per
-request — see [Client Examples](#client-examples) for why.
+**2. Describe your TigerGraph sites**
 
-A working reference lives in [`examples/multi_user_backend/`](examples/multi_user_backend/):
-a FastAPI service that does this with subprocess-per-user over stdio. To use the shared
-HTTP server instead, point each user's `MultiServerMCPClient` at `streamable_http` with
-your server's URL and put that user's credentials in `headers`.
+Put the environments in an env file. The unprefixed `TG_*` variables are the default
+profile; each `<NAME>_TG_*` group adds another. Credentials here are optional — include
+them for a shared or demo deployment, omit them to require every client to send its own:
 
-The `authenticate` tool remains available for re-pointing a live session mid-conversation:
-omit `profile` to replace the session's default connection, or name one to replace just
-that profile. Credentials are checked before the swap, so a bad one is reported at once
-and the existing connection keeps working. It is not needed when credentials arrive as
-headers.
+```bash
+# /etc/tigergraph-mcp/.env
+TG_DEFAULT_PROFILE=prod
 
-#### Option 2 — Cursor / Copilot pointing at a remote MCP server
+PROD_TG_HOST=https://mycompany.i.tgcloud.io
+PROD_TG_USERNAME=analyst
+PROD_TG_PASSWORD=...
 
-Each developer's `mcp.json` names a profile, or carries their own TigerGraph credentials
-as headers. Credentials are checked against TigerGraph when the session is established, so
-a bad one surfaces as a connection failure rather than a puzzling tool error:
+STAGING_TG_HOST=https://tg-staging.example.com
+STAGING_TG_USERNAME=analyst
+STAGING_TG_PASSWORD=...
+```
+
+**3. Start the server**
+
+```bash
+tigergraph-mcp --transport streamable-http \
+  --host 0.0.0.0 --port 8000 \
+  --env-file /etc/tigergraph-mcp/.env
+```
+
+It binds the port and serves until stopped, so run it under systemd, a container, or
+whatever supervises your services. Put a reverse proxy or API gateway in front for TLS
+and to control who may reach the URL.
+
+**4. Check that it is up**
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8000/mcp/ \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
+```
+
+| Response | Meaning |
+|---|---|
+| `200` | Up, and the default profile's credentials work |
+| `400` | Up, but the request does not name a reachable site (e.g. an unknown profile) |
+| `401` | Up, but no usable credentials — the client must send them |
+| `502` | Up, but TigerGraph itself could not be reached |
+| `307` | You omitted the **trailing slash** on `/mcp/` |
+| connection refused | The server is not running |
+
+**5. Point a client at it**
+
+The URL is `http://<host>:<port>/mcp/` — keep the trailing slash. Credentials, when the
+client supplies them, travel as `X-TG-*` headers; omit them to use the server's default
+profile as configured.
+
+*Cursor, VS Code, or any editor using `mcp.json`:*
 
 ```json
 {
   "servers": {
     "tigergraph-mcp-server": {
       "type": "http",
-      "url": "https://my-tg-mcp.internal/mcp/",
+      "url": "http://localhost:8000/mcp/",
       "headers": {
-        "X-TG-Host": "https://mycompany.i.tgcloud.io",
-        "X-TG-Api-Token": "${env:TG_API_TOKEN}"
+        "X-TG-Profile": "staging"
       }
     }
   }
 }
 ```
 
-See [HTTP Mode End-to-End](#http-mode-end-to-end) for setting the server up in the first
-place.
+The scheme is whatever the server is reachable on. `tigergraph-mcp` itself serves plain
+**HTTP** and does not terminate TLS, so use `http://` when connecting to it directly. A
+deployed instance normally sits behind a reverse proxy that adds TLS, in which case the
+URL is the proxy's — `https://my-tg-mcp.internal/mcp/`. Credentials travel in headers, so
+anything beyond localhost should be `https://`.
 
-#### Server-side profiles and header overrides
+To connect as yourself rather than as the profile's configured user, add your own
+credentials — keeping secrets out of the file by referencing the environment:
 
-The HTTP server reads the same `.env` file and `TG_*` / `<PROFILE>_TG_*` variables as stdio (`--env-file`, or a `.env` discovered from the working directory). Profiles define **topology** — host, ports, graph, TLS — and may optionally carry credentials. A request selects one with `X-TG-Profile`, and any `X-TG-*` header overrides that profile's value **for that session only**:
+```json
+      "headers": {
+        "X-TG-Host": "https://mycompany.i.tgcloud.io",
+        "X-TG-Api-Token": "${env:TG_API_TOKEN}"
+      }
+```
+
+*Python, LangChain, or any MCP SDK client:* see [Client Examples](#client-examples) for
+runnable versions of both. The HTTP client API differs between MCP SDK generations, so
+check which one you have with `pip show mcp`:
+
+```python
+# MCP SDK 2.x
+import httpx2
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+
+async with httpx2.AsyncClient(headers={"X-TG-Profile": "staging"}) as http_client:
+    async with streamable_http_client(
+        "http://localhost:8000/mcp/", http_client=http_client
+    ) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            await session.call_tool("tigergraph__list_graphs", {})
+```
+
+```python
+# MCP SDK 1.x
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
+
+async with streamablehttp_client(
+    "http://localhost:8000/mcp/", headers={"X-TG-Profile": "staging"}
+) as (read, write, _):
+    async with ClientSession(read, write) as session:
+        await session.initialize()
+        await session.call_tool("tigergraph__list_graphs", {})
+```
+
+#### Which connection a request gets
+
+Profiles come from the server's env file, exactly as in [Multiple Connection
+Profiles](#multiple-connection-profiles) above. A request picks one with `X-TG-Profile`,
+and any other `X-TG-*` header overrides that profile's value **for that session only**:
 
 | Headers sent | Connection used |
 |---|---|
 | `X-TG-Profile` only | that profile's topology **and** its configured credentials |
 | `X-TG-Profile` + credential headers | that profile's topology, the caller's identity |
-| Credential headers only | the `default` profile's topology, the caller's identity |
-| No headers | the `default` profile exactly as configured |
+| Credential headers only | the default profile's topology, the caller's identity |
+| No headers | the default profile exactly as configured |
 
-`TG_DEFAULT_PROFILE` (alias `TG_PROFILE`) names which profile acts as the default for requests that don't send `X-TG-Profile`; unset, the unprefixed `TG_*` variables are the default profile. Naming a profile the server does not define is an error rather than a silent fallback. `TG_HTTP_ALLOWED_PROFILES=demo,staging` narrows which profiles clients may name.
+Whether profiles carry credentials at all is your decision when writing the env file.
+Credentials there are a shared identity usable by anyone who can reach the server, which
+suits a demo or single-user deployment; an env file with topology only forces every caller
+to identify itself, which is what you want when several people share the server.
 
-A named profile uses its own credentials where it defines them, and the unprefixed `TG_*` ones where it does not — the same inheritance stdio uses. If no credentials are configured anywhere, every caller must supply their own.
-
-Whether profiles carry credentials at all is the operator's decision when writing the env file. Credentials in the env file are a shared identity usable by anyone who can reach the server, which suits a demo or single-user deployment; an env file with topology only forces every caller to identify itself, which is what you want for multi-user deployments.
-
-Within a session, a tool call may name any configured profile with its `profile` argument. That connection is opened in **that session's** pool and is never shared with other sessions — the same shape as a stdio process holding several profiles. Omitting `profile`, or passing `"default"`, resolves to the server's default profile, exactly as it does in stdio. A client normally sends no `X-TG-Profile` at all, which establishes the session on that default profile.
-
-Failures are reported by kind, so a caller can tell a wrong address from a wrong login:
-
-| Status | Meaning | Examples |
-|---|---|---|
-| `400` | Topology — the request does not describe a reachable server | unknown profile, no host resolvable |
-| `401` | Credentials — missing, or rejected by TigerGraph | no identity supplied, wrong password |
-| `502` | Connection — the server could not be reached | unroutable host, wrong port, timeout |
-
-The reachability probe is bounded by `TG_HTTP_VALIDATE_TIMEOUT` (default 10 seconds) so an unroutable host fails promptly instead of hanging the request.
-
-Idle sessions are reclaimed after `TG_HTTP_SESSION_IDLE_TIMEOUT` seconds (default 900; `0` keeps them for the life of the process), so pools do not accumulate when clients open many short-lived sessions. A reclaimed session is not broken — a later request rebuilds its pool.
-
-Credentials are checked against TigerGraph when the session's connection is established, not on every request — a client's headers are fixed for the life of its session, so re-checking proves nothing new. A rejected credential never establishes a session. Requests that cannot be resolved at all (unknown profile, no host) are refused without contacting TigerGraph.
-
-Access control to the endpoint itself remains the deployment's responsibility — put a reverse proxy or API gateway in front.
-
-Recognised headers (they mirror the `TG_*` env vars used in stdio mode):
+Recognised headers mirror the `TG_*` variables used in stdio mode:
 
 | Header | Env-var equivalent |
 |---|---|
@@ -600,16 +524,31 @@ Recognised headers (they mirror the `TG_*` env vars used in stdio mode):
 | `X-TG-Tgcloud` (`true`/`false`) | `TG_TGCLOUD` |
 | `X-TG-Cert-Path` | `TG_CERT_PATH` |
 
-A host and an identity must be resolvable from the selected profile, the headers, or a combination of the two; every header is otherwise optional.
+Once connected, a tool call may still name any configured profile with its `profile`
+argument; that connection opens in the calling session and is never shared with another.
 
-For per-call credential routing inside the agent's conversation, have the agent call `authenticate` once at session start:
+#### Serving several users
 
-```text
-User: Connect to my TigerGraph at https://acme.tgcloud.io with token eyJ...
-Agent:
-  → authenticate(host="https://acme.tgcloud.io", api_token="eyJ...")
-  → get_graph_schema(graph_name="MyGraph")
-```
+Each session gets its own connections, so concurrent users never share state or
+credentials. Two patterns work:
+
+- **Each person's editor connects directly**, with their own profile or credentials in
+  `mcp.json` — the configuration shown above.
+- **An application connects on its users' behalf**, opening one session per logged-in user
+  with that user's credentials in the headers, held for their lifetime so the LLM never
+  sees credentials. A working reference is in
+  [`examples/multi_user_backend/`](examples/multi_user_backend/).
+
+Two settings matter for a long-running server: `TG_HTTP_SESSION_IDLE_TIMEOUT` (default
+900s) reclaims connections from sessions that have gone quiet, and
+`TG_HTTP_ALLOWED_PROFILES=demo,staging` narrows which profiles clients may name.
+
+Access control to the endpoint itself is the deployment's responsibility — the server
+checks TigerGraph credentials, not who may reach the URL. Put a reverse proxy or API
+gateway in front, which is also where TLS belongs.
+
+The `authenticate` tool can re-point a live session mid-conversation, which is not needed
+when credentials arrive as headers.
 
 ### Using with Existing Connection
 
@@ -648,8 +587,10 @@ import asyncio
 from pathlib import Path
 
 from dotenv import dotenv_values
+from langchain.chat_models import init_chat_model
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
+from langgraph.prebuilt import create_react_agent
 
 env_dict = dotenv_values(dotenv_path=Path(".env").expanduser().resolve())
 
@@ -666,14 +607,23 @@ client = MultiServerMCPClient(
 
 
 async def main():
+    # One session for the whole run; every tool call reuses it.
     async with client.session("tigergraph-mcp-server") as session:
         tools = await load_mcp_tools(session)
-        # ... run your agent here; every tool call reuses this session
-        print([t.name for t in tools])
+
+        agent = create_react_agent(init_chat_model("openai:gpt-4.1-mini"), tools)
+        result = await agent.ainvoke(
+            {"messages": [{"role": "user", "content": "Which graphs are available?"}]}
+        )
+        print(result["messages"][-1].content)
 
 
 asyncio.run(main())
 ```
+
+`create_react_agent` is one option; `init_chat_model(...).bind_tools(tools)` works too if
+you are driving the model yourself. Either way, build the agent **inside** the session so
+the tools stay bound to it.
 
 > **Note:** Instead of loading a `.env` file, you can pass credentials directly in
 > the `env` mapping:
@@ -698,8 +648,10 @@ as headers, so nothing about TigerGraph needs to be configured on this side.
 ```python
 import asyncio
 
+from langchain.chat_models import init_chat_model
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
+from langgraph.prebuilt import create_react_agent
 
 client = MultiServerMCPClient(
     {
@@ -720,7 +672,12 @@ client = MultiServerMCPClient(
 async def main():
     async with client.session("tigergraph-mcp-server") as session:
         tools = await load_mcp_tools(session)
-        print([t.name for t in tools])
+
+        agent = create_react_agent(init_chat_model("openai:gpt-4.1-mini"), tools)
+        result = await agent.ainvoke(
+            {"messages": [{"role": "user", "content": "How many vertices are in MyGraph?"}]}
+        )
+        print(result["messages"][-1].content)
 
 
 asyncio.run(main())
