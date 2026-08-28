@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Data source credentials are masked in tool responses.** Reads previously returned whatever the server sent, which on TigerGraph 4.x includes stored secrets.
 - **`TG_DEFAULT_PROFILE` names the default profile**, with `TG_PROFILE` kept as an alias. Omitting a tool's `profile` argument and passing `"default"` now resolve identically — to that profile, or to the unprefixed `TG_*` variables when it is unset.
 - **Python 3.13 and 3.14 are supported and tested.** The minimum stays at 3.10.
-- **Both the 1.x and 2.x MCP SDKs are supported.** The 2.0 SDK replaced the handler decorators with constructor callbacks; the server detects which API the installed SDK provides, so upgrading the SDK no longer breaks startup.
+- **Both the 1.x and 2.x MCP SDKs are supported.** The README's HTTP client examples now cover both, whose client APIs differ. The 2.0 SDK replaced the handler decorators with constructor callbacks; the server detects which API the installed SDK provides, so upgrading the SDK no longer breaks startup.
 
 ### Fixed
 

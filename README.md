@@ -9,6 +9,7 @@ Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact w
 - [Getting Started](#getting-started)
 - [Usage](#usage)
   - [Running the MCP Server](#running-the-mcp-server)
+  - [HTTP Mode End-to-End](#http-mode-end-to-end)
   - [Configuration](#configuration)
   - [Multiple Connection Profiles](#multiple-connection-profiles)
     - [Helping the agent pick the right environment](#helping-the-agent-pick-the-right-environment)
@@ -31,7 +32,7 @@ Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact w
 ## Requirements
 
 - **Python 3.10 through 3.14**
-- **MCP SDK 1.x or 2.x** — either generation of the `mcp` package works.
+- **MCP SDK 1.x or 2.x** — the server works with either generation of the `mcp` package. Client code differs between them; see [MCP SDK over HTTP](#mcp-sdk-over-http).
 - **TigerGraph 4.1 or later** — Install from the [TigerGraph Downloads page](https://dl.tigergraph.com/) or use [TigerGraph Savanna](https://savanna.tgcloud.io/) for a managed cloud instance.
 
 > **Recommended: TigerGraph 4.2+** to enable TigerVector and advanced hybrid retrieval features.
@@ -161,6 +162,133 @@ Each MCP session gets its own connection pool, so concurrent users never share s
 The server reads the same `.env` file and `TG_*` / `<PROFILE>_TG_*` variables as stdio, which supply each profile's topology and, optionally, its credentials. A client selects a profile with `X-TG-Profile` and may override any value with the other `X-TG-*` headers — see [Server-side profiles and header overrides](#server-side-profiles-and-header-overrides). With no headers at all, the default profile is used exactly as configured.
 
 Authenticate the HTTP endpoint itself with a reverse proxy / API gateway when exposing it beyond localhost. The MCP server checks TigerGraph credentials, not who may reach the URL.
+
+### HTTP Mode End-to-End
+
+Run one shared server that several people or services connect to. Five steps.
+
+**1. Install with the web stack**
+
+```bash
+pip install tigergraph-mcp uvicorn starlette
+```
+
+**2. Describe your TigerGraph sites**
+
+Put the environments in an env file. The unprefixed `TG_*` variables are the default
+profile; each `<NAME>_TG_*` group adds another. Credentials here are optional — include
+them for a shared or demo deployment, omit them to require every client to send its own:
+
+```bash
+# /etc/tigergraph-mcp/.env
+TG_DEFAULT_PROFILE=prod
+
+PROD_TG_HOST=https://mycompany.i.tgcloud.io
+PROD_TG_USERNAME=analyst
+PROD_TG_PASSWORD=...
+
+STAGING_TG_HOST=https://tg-staging.example.com
+STAGING_TG_USERNAME=analyst
+STAGING_TG_PASSWORD=...
+```
+
+**3. Start the server**
+
+```bash
+tigergraph-mcp --transport streamable-http \
+  --host 0.0.0.0 --port 8000 \
+  --env-file /etc/tigergraph-mcp/.env
+```
+
+It binds the port and serves until stopped, so run it under systemd, a container, or
+whatever supervises your services. Put a reverse proxy or API gateway in front for TLS
+and to control who may reach the URL.
+
+**4. Check that it is up**
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8000/mcp/ \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
+```
+
+| Response | Meaning |
+|---|---|
+| `200` | Up, and the default profile's credentials work |
+| `400` | Up, but the request does not name a reachable site (e.g. an unknown profile) |
+| `401` | Up, but no usable credentials — the client must send them |
+| `502` | Up, but TigerGraph itself could not be reached |
+| `307` | You omitted the **trailing slash** on `/mcp/` |
+| connection refused | The server is not running |
+
+**5. Point a client at it**
+
+The URL is `http://<host>:<port>/mcp/` — keep the trailing slash. Credentials, when the
+client supplies them, travel as `X-TG-*` headers; omit them to use the server's default
+profile as configured.
+
+*Cursor, VS Code, or any editor using `mcp.json`:*
+
+```json
+{
+  "servers": {
+    "tigergraph-mcp-server": {
+      "type": "http",
+      "url": "https://my-tg-mcp.internal/mcp/",
+      "headers": {
+        "X-TG-Profile": "staging"
+      }
+    }
+  }
+}
+```
+
+To connect as yourself rather than as the profile's configured user, add your own
+credentials — keeping secrets out of the file by referencing the environment:
+
+```json
+      "headers": {
+        "X-TG-Host": "https://mycompany.i.tgcloud.io",
+        "X-TG-Api-Token": "${env:TG_API_TOKEN}"
+      }
+```
+
+*Python, LangChain, or any MCP SDK client:* see [Client Examples](#client-examples) for
+runnable versions of both. The HTTP client API differs between MCP SDK generations, so
+check which one you have with `pip show mcp`:
+
+```python
+# MCP SDK 2.x
+import httpx2
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+
+async with httpx2.AsyncClient(headers={"X-TG-Profile": "staging"}) as http_client:
+    async with streamable_http_client(
+        "http://localhost:8000/mcp/", http_client=http_client
+    ) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            await session.call_tool("tigergraph__list_graphs", {})
+```
+
+```python
+# MCP SDK 1.x
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
+
+async with streamablehttp_client(
+    "http://localhost:8000/mcp/", headers={"X-TG-Profile": "staging"}
+) as (read, write, _):
+    async with ClientSession(read, write) as session:
+        await session.initialize()
+        await session.call_tool("tigergraph__list_graphs", {})
+```
+
+Which profile a call uses, and how an agent picks one, is covered in
+[Multiple Connection Profiles](#multiple-connection-profiles); the full header list is in
+[Server-side profiles and header overrides](#server-side-profiles-and-header-overrides).
 
 ### Configuration
 
@@ -400,22 +528,27 @@ headers.
 
 #### Option 2 — Cursor / Copilot pointing at a remote MCP server
 
-Each developer's `mcp.json` carries their own TigerGraph credentials as headers. The MCP server validates them against TigerGraph on every request and 401s on failure, so a bad credential surfaces as a connection error rather than a tool failure:
+Each developer's `mcp.json` names a profile, or carries their own TigerGraph credentials
+as headers. Credentials are checked against TigerGraph when the session is established, so
+a bad one surfaces as a connection failure rather than a puzzling tool error:
 
 ```json
 {
   "servers": {
     "tigergraph-mcp-server": {
       "type": "http",
-      "url": "https://my-tg-mcp.internal/mcp",
+      "url": "https://my-tg-mcp.internal/mcp/",
       "headers": {
-        "X-TG-Host": "https://acme.tgcloud.io",
+        "X-TG-Host": "https://mycompany.i.tgcloud.io",
         "X-TG-Api-Token": "${env:TG_API_TOKEN}"
       }
     }
   }
 }
 ```
+
+See [HTTP Mode End-to-End](#http-mode-end-to-end) for setting the server up in the first
+place.
 
 #### Server-side profiles and header overrides
 
@@ -634,37 +767,65 @@ asyncio.run(main())
 
 ### MCP SDK over HTTP
 
+The HTTP client API changed between MCP SDK generations. Check yours with `pip show mcp`
+— a fresh `pip install` currently gets 2.x. In 1.x the function took `headers` and yielded
+three values; in 2.x it takes an `http_client` carrying the headers and yields two.
+
 ```python
+# MCP SDK 2.x
+import asyncio
+
+import httpx2
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+
+URL = "http://localhost:8000/mcp/"           # trailing slash required
+HEADERS = {                                  # omit to use the default profile
+    "X-TG-Profile": "staging",
+}
+
+
+async def main():
+    async with httpx2.AsyncClient(headers=HEADERS) as http_client:
+        async with streamable_http_client(URL, http_client=http_client) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                tools = await session.list_tools()
+                print(f"Available tools: {[t.name for t in tools.tools]}")
+
+                # Every call reuses this session's pooled connection.
+                result = await session.call_tool("tigergraph__list_graphs", arguments={})
+                for content in result.content:
+                    print(content.text)
+
+                # Route one call to another configured profile.
+                await session.call_tool(
+                    "tigergraph__list_graphs", arguments={"profile": "prod"}
+                )
+
+
+asyncio.run(main())
+```
+
+```python
+# MCP SDK 1.x
 import asyncio
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-URL = "http://localhost:8000/mcp/"          # trailing slash required
-HEADERS = {                                  # omit to use the default profile
-    "X-TG-Host": "http://my-tigergraph:14240",
-    "X-TG-Username": "my_user",
-    "X-TG-Password": "my_password",
-}
+URL = "http://localhost:8000/mcp/"
+HEADERS = {"X-TG-Profile": "staging"}
 
 
 async def main():
     async with streamablehttp_client(URL, headers=HEADERS) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
-
-            tools = await session.list_tools()
-            print(f"Available tools: {[t.name for t in tools.tools]}")
-
-            # Every call reuses this session's pooled connection.
             result = await session.call_tool("tigergraph__list_graphs", arguments={})
             for content in result.content:
                 print(content.text)
-
-            # Route one call to another configured profile.
-            result = await session.call_tool(
-                "tigergraph__list_graphs", arguments={"profile": "prod"}
-            )
 
 
 asyncio.run(main())
