@@ -587,8 +587,10 @@ import asyncio
 from pathlib import Path
 
 from dotenv import dotenv_values
+from langchain.chat_models import init_chat_model
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
+from langgraph.prebuilt import create_react_agent
 
 env_dict = dotenv_values(dotenv_path=Path(".env").expanduser().resolve())
 
@@ -605,14 +607,23 @@ client = MultiServerMCPClient(
 
 
 async def main():
+    # One session for the whole run; every tool call reuses it.
     async with client.session("tigergraph-mcp-server") as session:
         tools = await load_mcp_tools(session)
-        # ... run your agent here; every tool call reuses this session
-        print([t.name for t in tools])
+
+        agent = create_react_agent(init_chat_model("openai:gpt-4.1-mini"), tools)
+        result = await agent.ainvoke(
+            {"messages": [{"role": "user", "content": "Which graphs are available?"}]}
+        )
+        print(result["messages"][-1].content)
 
 
 asyncio.run(main())
 ```
+
+`create_react_agent` is one option; `init_chat_model(...).bind_tools(tools)` works too if
+you are driving the model yourself. Either way, build the agent **inside** the session so
+the tools stay bound to it.
 
 > **Note:** Instead of loading a `.env` file, you can pass credentials directly in
 > the `env` mapping:
@@ -637,8 +648,10 @@ as headers, so nothing about TigerGraph needs to be configured on this side.
 ```python
 import asyncio
 
+from langchain.chat_models import init_chat_model
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
+from langgraph.prebuilt import create_react_agent
 
 client = MultiServerMCPClient(
     {
@@ -659,7 +672,12 @@ client = MultiServerMCPClient(
 async def main():
     async with client.session("tigergraph-mcp-server") as session:
         tools = await load_mcp_tools(session)
-        print([t.name for t in tools])
+
+        agent = create_react_agent(init_chat_model("openai:gpt-4.1-mini"), tools)
+        result = await agent.ainvoke(
+            {"messages": [{"role": "user", "content": "How many vertices are in MyGraph?"}]}
+        )
+        print(result["messages"][-1].content)
 
 
 asyncio.run(main())
