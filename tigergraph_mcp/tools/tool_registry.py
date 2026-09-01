@@ -10,6 +10,9 @@
 from typing import List
 from mcp.types import Tool
 
+from .. import tool_filter
+from ..tool_annotations import annotate
+
 from .connection_tools import (
     list_connections_tool,
     show_connection_tool,
@@ -100,96 +103,106 @@ from .discovery_tools import (
 )
 
 
-def get_all_tools() -> List[Tool]:
-    """Get all available MCP tools.
+def get_all_tools(apply_filter: bool = True) -> List[Tool]:
+    """Get the MCP tools this server offers.
 
-    Returns:
-        List of all MCP tools.
+    Every tool carries the behavioural hints a client uses to decide whether a
+    call needs confirmation. When a deployment narrows the tool list, the
+    result reflects that narrowing.
+
+    Args:
+        apply_filter: Set False to get the complete list regardless of how the
+            deployment is configured, which is what discovery tools need in
+            order to describe what exists.
     """
-    return [
-        # Connection profile operations
-        list_connections_tool,
-        show_connection_tool,
-        authenticate_tool,
-        # Global schema operations (database level)
-        get_global_schema_tool,
-        # Graph operations (database level)
-        list_graphs_tool,
-        create_graph_tool,
-        drop_graph_tool,
-        clear_graph_data_tool,
-        # Schema operations (graph level)
-        get_graph_schema_tool,
-        show_graph_details_tool,
-        update_schema_tool,
-        # Validation tools
-        validate_schema_names_tool,
-        # Node tools
-        add_node_tool,
-        add_nodes_tool,
-        get_node_tool,
-        get_nodes_tool,
-        delete_node_tool,
-        delete_nodes_tool,
-        has_node_tool,
-        get_node_edges_tool,
-        # Edge tools
-        add_edge_tool,
-        add_edges_tool,
-        get_edge_tool,
-        get_edges_tool,
-        delete_edge_tool,
-        delete_edges_tool,
-        has_edge_tool,
-        # Query tools
-        run_query_tool,
-        run_installed_query_tool,
-        install_query_tool,
-        drop_query_tool,
-        show_query_tool,
-        get_query_metadata_tool,
-        update_query_description_tool,
-        get_query_description_tool,
-        is_query_installed_tool,
-        get_neighbors_tool,
-        # Loading job tools
-        create_loading_job_tool,
-        run_loading_job_with_file_tool,
-        run_loading_job_with_data_tool,
-        get_loading_jobs_tool,
-        get_loading_job_status_tool,
-        drop_loading_job_tool,
-        # Statistics tools
-        get_vertex_count_tool,
-        get_edge_count_tool,
-        get_node_degree_tool,
-        # GSQL tools
-        gsql_tool,
-        generate_gsql_query_tool,
-        generate_cypher_query_tool,
-        # Vector schema tools
-        add_vector_attribute_tool,
-        drop_vector_attribute_tool,
-        list_vector_attributes_tool,
-        get_vector_index_status_tool,
-        # Vector data tools
-        upsert_vectors_tool,
-        load_vectors_from_csv_tool,
-        load_vectors_from_json_tool,
-        search_top_k_similarity_tool,
-        fetch_vector_tool,
-        # Data Source tools
-        create_data_source_tool,
-        update_data_source_tool,
-        get_data_source_tool,
-        drop_data_source_tool,
-        get_all_data_sources_tool,
-        drop_all_data_sources_tool,
-        get_data_source_types_tool,
-        preview_sample_data_tool,
-        # Discovery tools
-        discover_tools_tool,
-        get_workflow_tool,
-        get_tool_info_tool,
-    ]
+    tools = annotate(_ALL_TOOLS)
+    return tool_filter.apply(tools) if apply_filter else tools
+
+
+_ALL_TOOLS: List[Tool] = [
+    # Connection profile operations
+    list_connections_tool,
+    show_connection_tool,
+    authenticate_tool,
+    # Global schema operations (database level)
+    get_global_schema_tool,
+    # Graph operations (database level)
+    list_graphs_tool,
+    create_graph_tool,
+    drop_graph_tool,
+    clear_graph_data_tool,
+    # Schema operations (graph level)
+    get_graph_schema_tool,
+    show_graph_details_tool,
+    update_schema_tool,
+    # Validation tools
+    validate_schema_names_tool,
+    # Node tools
+    add_node_tool,
+    add_nodes_tool,
+    get_node_tool,
+    get_nodes_tool,
+    delete_node_tool,
+    delete_nodes_tool,
+    has_node_tool,
+    get_node_edges_tool,
+    # Edge tools
+    add_edge_tool,
+    add_edges_tool,
+    get_edge_tool,
+    get_edges_tool,
+    delete_edge_tool,
+    delete_edges_tool,
+    has_edge_tool,
+    # Query tools
+    run_query_tool,
+    run_installed_query_tool,
+    install_query_tool,
+    drop_query_tool,
+    show_query_tool,
+    get_query_metadata_tool,
+    update_query_description_tool,
+    get_query_description_tool,
+    is_query_installed_tool,
+    get_neighbors_tool,
+    # Loading job tools
+    create_loading_job_tool,
+    run_loading_job_with_file_tool,
+    run_loading_job_with_data_tool,
+    get_loading_jobs_tool,
+    get_loading_job_status_tool,
+    drop_loading_job_tool,
+    # Statistics tools
+    get_vertex_count_tool,
+    get_edge_count_tool,
+    get_node_degree_tool,
+    # GSQL tools
+    gsql_tool,
+    generate_gsql_query_tool,
+    generate_cypher_query_tool,
+    # Vector schema tools
+    add_vector_attribute_tool,
+    drop_vector_attribute_tool,
+    list_vector_attributes_tool,
+    get_vector_index_status_tool,
+    # Vector data tools
+    upsert_vectors_tool,
+    load_vectors_from_csv_tool,
+    load_vectors_from_json_tool,
+    search_top_k_similarity_tool,
+    fetch_vector_tool,
+    # Data Source tools
+    create_data_source_tool,
+    update_data_source_tool,
+    get_data_source_tool,
+    drop_data_source_tool,
+    get_all_data_sources_tool,
+    drop_all_data_sources_tool,
+    get_data_source_types_tool,
+    preview_sample_data_tool,
+    # Discovery tools
+    discover_tools_tool,
+    get_workflow_tool,
+    get_tool_info_tool,
+]
 

@@ -37,6 +37,23 @@ from .server import serve
               help="TCP port for HTTP transports.")
 @click.option("--mount-path", default="/mcp", show_default=True,
               help="URL path mount point for HTTP transports.")
+@click.option(
+    "--allowed-tools",
+    default=None,
+    help=(
+        "Serve only these tools. Comma-separated categories (schema, data, "
+        "query, vector, loading, utility, discovery), 'read-only', "
+        "'destructive', or tool names. Defaults to TG_ALLOWED_TOOLS, else all."
+    ),
+)
+@click.option(
+    "--blocked-tools",
+    default=None,
+    help=(
+        "Remove these tools from whatever is served. Same syntax as "
+        "--allowed-tools. Defaults to TG_BLOCKED_TOOLS."
+    ),
+)
 def main(
     verbose: bool,
     env_file: Path = None,
@@ -44,6 +61,8 @@ def main(
     host: str = "127.0.0.1",
     port: int = 8000,
     mount_path: str = "/mcp",
+    allowed_tools: str = None,
+    blocked_tools: str = None,
 ) -> None:
     """TigerGraph MCP Server - TigerGraph functionality for MCP
 
@@ -65,6 +84,24 @@ def main(
     # Load .env file and discover connection profiles
     from .connection_manager import ConnectionManager
     ConnectionManager.load_profiles(env_path=str(env_file) if env_file else None)
+
+    # Which tools to serve. Resolved after the env file is loaded so it may be
+    # configured there, and validated now so a bad selector fails at startup.
+    from . import tool_filter
+    from .tools import get_all_tools
+    tool_filter.configure(allowed=allowed_tools, blocked=blocked_tools)
+    try:
+        served = len(get_all_tools())
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+    if tool_filter.configured() != (None, None):
+        logging.getLogger(__name__).info(
+            "Serving %d of %d tools", served, len(get_all_tools(apply_filter=False))
+        )
+        if served == 0:
+            raise click.ClickException(
+                "The configured tool selection leaves no tools to serve."
+            )
 
     asyncio.run(
         serve(transport=transport.lower(), host=host, port=port, mount_path=mount_path)
