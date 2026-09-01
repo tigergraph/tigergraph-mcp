@@ -16,6 +16,7 @@ Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact w
   - [HTTP Mode End-to-End](#http-mode-end-to-end)
     - [Which connection a request gets](#which-connection-a-request-gets)
     - [Serving several users](#serving-several-users)
+  - [Serving a Subset of the Tools](#serving-a-subset-of-the-tools)
   - [Using with Existing Connection](#using-with-existing-connection)
 - [Client Examples](#client-examples)
   - [LangChain / LangGraph over stdio](#langchain--langgraph-over-stdio)
@@ -549,6 +550,95 @@ gateway in front, which is also where TLS belongs.
 
 The `authenticate` tool can re-point a live session mid-conversation, which is not needed
 when credentials arrive as headers.
+
+### Serving a Subset of the Tools
+
+All 69 tools are offered by default. An agent carries every tool it is given on **every**
+request, so a deployment that only needs some of them can say so:
+
+```bash
+# only the tools that read
+tigergraph-mcp --allowed-tools read-only
+
+# a task-shaped subset
+tigergraph-mcp --allowed-tools schema,query
+
+# everything except the ones that remove data
+tigergraph-mcp --blocked-tools destructive
+```
+
+`TG_ALLOWED_TOOLS` and `TG_BLOCKED_TOOLS` do the same from the environment or an env file;
+the flags win where both are set.
+
+A selector is a comma-separated list of:
+
+| Selector | Meaning |
+|---|---|
+| `schema`, `data`, `query`, `vector`, `loading`, `utility`, `discovery` | a category |
+| `read-only` | the tools that change nothing |
+| `destructive` | the tools that may remove or overwrite something |
+| `list_graphs`, `tigergraph__list_graphs` | one tool, with or without the prefix |
+
+`--blocked-tools` is applied after `--allowed-tools`, so
+`--allowed-tools schema --blocked-tools drop_graph` serves the schema tools without that one.
+An unrecognised selector stops the server at startup rather than quietly serving a short
+list, and a selection that leaves nothing to serve is likewise an error.
+
+Roughly what each choice costs an agent:
+
+| Served | Tools | ~Tokens |
+|---|---|---|
+| everything | 69 | 29,100 |
+| `read-only` | 37 | 12,400 |
+| `schema,query` | 21 | 9,100 |
+
+Note that `discovery` and `utility` are not added automatically. If you narrow by category,
+include them where the agent needs to discover tools or route calls by profile:
+`--allowed-tools schema,query,discovery,utility`.
+
+#### Per-session narrowing over HTTP
+
+A client may restrict its own session with an `X-TG-Tools` header, using the same
+selectors:
+
+```json
+{
+  "servers": {
+    "tigergraph-mcp-server": {
+      "type": "http",
+      "url": "http://localhost:8000/mcp/",
+      "headers": {
+        "X-TG-Profile": "prod",
+        "X-TG-Tools": "read-only"
+      }
+    }
+  }
+}
+```
+
+This only ever narrows. A session cannot reach a tool the deployment withheld, so asking
+for `destructive` on a server started with `--blocked-tools destructive` yields no tools
+rather than the blocked ones.
+
+#### What a tool declares about itself
+
+Every tool carries the MCP behavioural hints, which is how an editor decides whether to run
+something silently or ask first:
+
+```json
+"annotations": {
+  "title": "Drop graph",
+  "readOnlyHint": false,
+  "destructiveHint": true,
+  "idempotentHint": true,
+  "openWorldHint": false
+}
+```
+
+These reach the client, not the model, so they cost nothing in context. `read-only` and
+`destructive` selectors resolve from the same classification. Tools that execute
+caller-supplied query text — `gsql`, `run_query`, `run_installed_query` — are marked
+destructive, because what they do depends on the text they are given.
 
 ### Using with Existing Connection
 
