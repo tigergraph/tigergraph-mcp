@@ -13,6 +13,8 @@ import click
 import asyncio
 from pathlib import Path
 
+from . import call_log
+from .call_log import IDENTITY_CHOICES
 from .server import serve
 
 
@@ -54,6 +56,24 @@ from .server import serve
         "--allowed-tools. Defaults to TG_BLOCKED_TOOLS."
     ),
 )
+@click.option(
+    "--log-tool-calls/--no-log-tool-calls",
+    default=None,
+    help=(
+        "Write one line per tool call to stderr. Defaults to "
+        "TG_LOG_TOOL_CALLS, else off."
+    ),
+)
+@click.option(
+    "--log-caller",
+    type=click.Choice(list(IDENTITY_CHOICES), case_sensitive=False),
+    default=None,
+    help=(
+        "Which caller identity each tool-call line carries: the connection "
+        "profile, the TigerGraph account name, or neither. Defaults to "
+        "TG_LOG_CALLER_IDENTITY, else 'none'."
+    ),
+)
 def main(
     verbose: bool,
     env_file: Path = None,
@@ -63,6 +83,8 @@ def main(
     mount_path: str = "/mcp",
     allowed_tools: str = None,
     blocked_tools: str = None,
+    log_tool_calls: bool = None,
+    log_caller: str = None,
 ) -> None:
     """TigerGraph MCP Server - TigerGraph functionality for MCP
 
@@ -84,6 +106,23 @@ def main(
     # Load .env file and discover connection profiles
     from .connection_manager import ConnectionManager
     ConnectionManager.load_profiles(env_path=str(env_file) if env_file else None)
+
+    # Whether to log tool calls, and with which caller identity. Resolved
+    # after the env file is loaded so it may be configured there.
+    try:
+        call_log.configure(enabled=log_tool_calls, identity=log_caller)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+    log = logging.getLogger(__name__)
+    if call_log.enabled():
+        log.info("Logging tool calls (caller identity: %s)", call_log.identity())
+        if call_log.logs_personal_data():
+            log.warning("Tool-call logs will contain TigerGraph account names.")
+    elif call_log.identity_ignored():
+        log.warning(
+            "--log-caller is off without --log-tool-calls; "
+            "no tool calls are being logged."
+        )
 
     # Which tools to serve. Resolved after the env file is loaded so it may be
     # configured there, and validated now so a bad selector fails at startup.

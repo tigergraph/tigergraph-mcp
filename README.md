@@ -17,6 +17,7 @@ Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact w
     - [Which connection a request gets](#which-connection-a-request-gets)
     - [Serving several users](#serving-several-users)
   - [Serving a Subset of the Tools](#serving-a-subset-of-the-tools)
+  - [Logging Tool Calls](#logging-tool-calls)
   - [Using with Existing Connection](#using-with-existing-connection)
 - [Client Examples](#client-examples)
   - [LangChain / LangGraph over stdio](#langchain--langgraph-over-stdio)
@@ -212,6 +213,8 @@ The server loads the `.env` file automatically. Environment variables take prece
 | `TG_SSL_PORT` | `443` | SSL port |
 | `TG_TGCLOUD` | `false` | Whether using TigerGraph Cloud |
 | `TG_CERT_PATH` | _(empty)_ | Path to certificate (optional) |
+| `TG_LOG_TOOL_CALLS` | `false` | Log one line per tool call |
+| `TG_LOG_CALLER_IDENTITY` | `none` | Caller identity in those lines: `none`, `profile`, or `username` |
 
 ### Multiple Connection Profiles
 
@@ -639,6 +642,65 @@ These reach the client, not the model, so they cost nothing in context. `read-on
 `destructive` selectors resolve from the same classification. Tools that execute
 caller-supplied query text — `gsql`, `run_query`, `run_installed_query` — are marked
 destructive, because what they do depends on the text they are given.
+
+### Logging Tool Calls
+
+Nothing is logged about tool calls by default. A shared deployment usually wants a record
+of what has been run against an instance:
+
+```bash
+tigergraph-mcp --transport streamable-http --log-tool-calls
+```
+
+One line per call goes to stderr:
+
+```
+tool call tool=tigergraph__drop_graph session=b1f2c3 host=https://mycompany.i.tgcloud.io
+```
+
+Who made the call is a **separate** opt-in, because a TigerGraph account name generally
+identifies a person. It requires `--log-tool-calls` — on its own it does nothing, and the
+server says so at startup:
+
+```bash
+# the connection profile the call used
+tigergraph-mcp --log-tool-calls --log-caller profile
+
+# the TigerGraph account as well
+tigergraph-mcp --log-tool-calls --log-caller username
+```
+
+| `--log-caller` | Line carries |
+|---|---|
+| `none` _(default)_ | tool, session, host |
+| `profile` | the above, plus the connection profile |
+| `username` | the above, plus the account name and how it authenticated |
+
+```
+tool call tool=tigergraph__drop_graph session=b1f2c3 host=https://mycompany.i.tgcloud.io profile=prod user=alice auth=password
+```
+
+`TG_LOG_TOOL_CALLS` and `TG_LOG_CALLER_IDENTITY` do the same from the environment or an env
+file; the flags win where both are set. `TG_LOG_CALLER_IDENTITY` is gated the same way, so
+leaving it in an env file has no effect until tool-call logging is turned on — and turning
+it on later will not silently start writing account names.
+
+Two things to know before turning on `username`:
+
+- **Callers who authenticate with a token or a GSQL secret appear as `user=-`.** TigerGraph
+  tokens do not tell the server which account is behind them, so there is no name to record.
+- **The logs then contain personal data.** Whatever retention, access, and disclosure rules
+  apply to your other logs apply to these. `profile` is the smaller disclosure and is often
+  enough — it says which configured connection was used without naming anyone.
+
+In stdio mode there is a single configured identity for the process, so every line carries
+the same profile and account. The record is more useful over HTTP, where each session
+authenticates separately.
+
+Never logged, at any setting: passwords, GSQL secrets, API and JWT tokens, and tool
+arguments — arguments hold query text and vertex payloads, which is graph data rather than
+an audit record. Access to the endpoint itself is still the deployment's concern; a reverse
+proxy is where request-level access logs belong.
 
 ### Using with Existing Connection
 

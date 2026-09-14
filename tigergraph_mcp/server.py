@@ -49,6 +49,7 @@ def session_idle_timeout() -> float:
 def session_sweep_interval() -> float:
     return _float_env("TG_HTTP_SESSION_SWEEP_INTERVAL", DEFAULT_SESSION_SWEEP_INTERVAL)
 
+from . import call_log
 from .tool_names import TigerGraphToolName
 from .response_formatter import format_error
 from .connection_manager import (
@@ -339,6 +340,10 @@ class MCPServer:
     ) -> List[TextContent]:
         """Handle tool calls."""
         session_cm = await self._session_manager_for_current_request(session)
+        # Read the credentials rather than the session's connection: the
+        # ``authenticate`` tool can re-point a live session, so the identity
+        # behind a call is whatever this request carried.
+        call_log.log_call(name, get_pending_credentials())
         bind_cm = (
             use_session_manager(session_cm)
             if session_cm is not None

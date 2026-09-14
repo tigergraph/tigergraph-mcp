@@ -509,5 +509,76 @@ class TestProfileResolution(unittest.TestCase):
         self.assertEqual(self.resolve({"x-tg-profile": "DEMO"})["profile"], "demo")
 
 
+class TestAuditFields(unittest.TestCase):
+    """Fields the resolved credentials carry for tool-call logging.
+
+    The auth mode has to be recorded at resolution time: validation mints a
+    token and stores it on the credentials, after which the mode can no
+    longer be read back off them.
+    """
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, SERVER_PROFILES, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def resolve(self, headers):
+        return http_middleware._parse_credentials(headers)
+
+    def test_password_auth_records_the_mode_and_the_account(self):
+        creds = self.resolve({"x-tg-username": "alice", "x-tg-password": "pw"})
+        self.assertEqual(creds["auth_mode"], "password")
+        self.assertTrue(creds["username_supplied"])
+
+    def test_jwt_auth_records_no_account(self):
+        creds = self.resolve({"x-tg-jwt-token": "jwt"})
+        self.assertEqual(creds["auth_mode"], "jwt")
+        self.assertFalse(creds["username_supplied"])
+        # The username is a placeholder, not an account anyone authenticated as.
+        self.assertEqual(creds["username"], "tigergraph")
+
+    def test_api_token_auth_records_no_account(self):
+        creds = self.resolve({"x-tg-api-token": "tok"})
+        self.assertEqual(creds["auth_mode"], "token")
+        self.assertFalse(creds["username_supplied"])
+
+    def test_secret_auth_records_no_account(self):
+        creds = self.resolve({"x-tg-secret": "sec"})
+        self.assertEqual(creds["auth_mode"], "secret")
+        self.assertFalse(creds["username_supplied"])
+
+    def test_jwt_wins_when_several_credentials_are_sent(self):
+        creds = self.resolve({
+            "x-tg-jwt-token": "jwt", "x-tg-api-token": "tok",
+            "x-tg-username": "alice", "x-tg-password": "pw",
+        })
+        self.assertEqual(creds["auth_mode"], "jwt")
+        # An account was named alongside the token, so it is a real one.
+        self.assertTrue(creds["username_supplied"])
+
+    def test_profile_credentials_count_as_a_supplied_account(self):
+        # Configured server-side rather than sent, but still a real account.
+        creds = self.resolve({"x-tg-profile": "demo"})
+        self.assertEqual(creds["auth_mode"], "password")
+        self.assertTrue(creds["username_supplied"])
+
+    def test_session_id_is_attached_for_the_downstream_app(self):
+        app = _CapturingApp()
+        mw = CredentialHeadersMiddleware(app, validate=False)
+        headers = {
+            "x-tg-username": "alice", "x-tg-password": "pw",
+            "mcp-session-id": "sess-7",
+        }
+        asyncio.run(mw(_scope(headers), _noop_receive, _Inbox()))
+        self.assertEqual(app.creds_seen["session_id"], "sess-7")
+
+    def test_establishing_request_has_no_session_id_yet(self):
+        app = _CapturingApp()
+        mw = CredentialHeadersMiddleware(app, validate=False)
+        headers = {"x-tg-username": "alice", "x-tg-password": "pw"}
+        asyncio.run(mw(_scope(headers), _noop_receive, _Inbox()))
+        self.assertEqual(app.creds_seen["session_id"], "")
+
+
 if __name__ == "__main__":
     unittest.main()
