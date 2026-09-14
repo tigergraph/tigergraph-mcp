@@ -9,7 +9,9 @@ The adapters are exercised on both generations: the result and params types
 they use exist in 1.x as well, so running under 1.x still covers the 2.x path.
 """
 
+import inspect
 import os
+import re
 import time
 import unittest
 from unittest import mock
@@ -22,8 +24,11 @@ from tigergraph_mcp.connection_manager import (
     reset_pending_credentials,
     set_pending_credentials,
 )
-from tigergraph_mcp.server import MCPServer, _SDK_HAS_DECORATORS
+from pyTigerGraph.common.exception import TigerGraphException
+
+from tigergraph_mcp.server import MCPServer, serve, _SDK_HAS_DECORATORS
 from tigergraph_mcp.tool_names import TigerGraphToolName
+from tigergraph_mcp.tools import get_all_tools
 
 SDK_HAS_DECORATORS = hasattr(_mcp_server.Server, "list_tools")
 
@@ -220,6 +225,142 @@ class TestIdleSessionSweeper(unittest.IsolatedAsyncioTestCase):
         await self.server.aclose_session_managers()
         self.assertEqual(self.server._session_managers, {})
         self.assertEqual(self.server._session_last_used, {})
+
+
+class TestToolErrorsBecomeResponses(unittest.IsolatedAsyncioTestCase):
+    """A failing tool must answer, not raise.
+
+    Raising out of the dispatch would break the MCP session for every later
+    call; the agent needs a reply it can read and act on.
+    """
+
+    async def dispatch_raising(self, exc):
+        with mock.patch("tigergraph_mcp.server.get_data_source_types",
+                        side_effect=exc):
+            result = await MCPServer()._handle_call_tool(LOCAL_TOOL, {"a": 1})
+        self.assertTrue(result)
+        return result[0].text
+
+    async def test_a_tigergraph_error_is_reported(self):
+        text = await self.dispatch_raising(TigerGraphException("REST++ said no"))
+        self.assertIn("REST++ said no", text)
+
+    async def test_an_unexpected_error_is_reported(self):
+        text = await self.dispatch_raising(RuntimeError("something broke"))
+        self.assertIn("something broke", text)
+
+    async def test_the_failing_tool_is_named(self):
+        text = await self.dispatch_raising(RuntimeError("boom"))
+        self.assertIn(LOCAL_TOOL, text)
+
+    async def test_the_arguments_come_back_for_diagnosis(self):
+        text = await self.dispatch_raising(RuntimeError("boom"))
+        self.assertIn("a", text)
+
+    async def test_a_later_call_still_works(self):
+        # The session must survive a failure.
+        await self.dispatch_raising(RuntimeError("boom"))
+        ok = await MCPServer()._handle_call_tool(LOCAL_TOOL, {})
+        self.assertIn("snowflake", ok[0].text)
+
+    async def test_unknown_tool_does_not_raise_either(self):
+        result = await MCPServer()._handle_call_tool("tigergraph__nope", {})
+        self.assertIn("Unknown tool", result[0].text)
+
+
+class TestServeTransportRouting(unittest.IsolatedAsyncioTestCase):
+
+    async def test_stdio_is_the_default(self):
+        with mock.patch("tigergraph_mcp.server._serve_stdio") as stdio:
+            await serve()
+        self.assertTrue(stdio.called)
+
+    async def test_streamable_http_routes_to_the_http_server(self):
+        with mock.patch("tigergraph_mcp.server._serve_http") as http:
+            await serve(transport="streamable-http", host="0.0.0.0", port=1234)
+        self.assertEqual(http.call_args.args[0], "streamable-http")
+        self.assertEqual(http.call_args.args[1:3], ("0.0.0.0", 1234))
+
+    async def test_sse_routes_to_the_http_server(self):
+        with mock.patch("tigergraph_mcp.server._serve_http") as http:
+            await serve(transport="sse")
+        self.assertEqual(http.call_args.args[0], "sse")
+
+    async def test_an_unknown_transport_is_refused(self):
+        with self.assertRaises(ValueError) as ctx:
+            await serve(transport="carrier-pigeon")
+        self.assertIn("carrier-pigeon", str(ctx.exception))
+
+    async def test_the_error_lists_the_transports_that_do_work(self):
+        with self.assertRaises(ValueError) as ctx:
+            await serve(transport="")
+        for known in ("stdio", "streamable-http", "sse"):
+            self.assertIn(known, str(ctx.exception))
+
+
+class TestSessionShutdown(unittest.IsolatedAsyncioTestCase):
+
+    async def test_all_session_pools_are_closed(self):
+        server = MCPServer(multi_session=True)
+        closed = []
+        for key in (1, 2):
+            cm = mock.Mock(spec=SessionConnectionManager)
+            cm.close_all = mock.AsyncMock(side_effect=lambda k=key: closed.append(k))
+            server._session_managers[key] = cm
+            server._session_last_used[key] = 0.0
+        await server.aclose_session_managers()
+        self.assertEqual(sorted(closed), [1, 2])
+        self.assertEqual(server._session_managers, {})
+        self.assertEqual(server._session_last_used, {})
+
+    async def test_one_failing_close_does_not_strand_the_others(self):
+        server = MCPServer(multi_session=True)
+        bad = mock.Mock(spec=SessionConnectionManager)
+        bad.close_all = mock.AsyncMock(side_effect=RuntimeError("already gone"))
+        good = mock.Mock(spec=SessionConnectionManager)
+        good.close_all = mock.AsyncMock()
+        server._session_managers.update({1: bad, 2: good})
+        await server.aclose_session_managers()
+        self.assertTrue(good.close_all.called)
+        self.assertEqual(server._session_managers, {})
+
+    async def test_shutdown_with_no_sessions_is_harmless(self):
+        await MCPServer(multi_session=True).aclose_session_managers()
+
+
+class TestEveryServedToolIsDispatchable(unittest.TestCase):
+    """A tool the server advertises must have a dispatch arm.
+
+    The list of tools and the match statement that routes them are maintained
+    separately, so a tool can be added to the registry and never wired up. The
+    symptom is an agent calling an advertised tool and being told it does not
+    exist, which is confusing rather than obviously a bug. Checked statically
+    so it costs nothing and needs no database.
+    """
+
+    def setUp(self):
+        src = inspect.getsource(MCPServer._handle_call_tool)
+        self.dispatched = set(re.findall(r"TigerGraphToolName\.([A-Z_0-9]+)", src))
+        self.by_value = {m.value: m.name for m in TigerGraphToolName}
+
+    def test_every_advertised_tool_has_an_arm(self):
+        missing = []
+        for tool in get_all_tools(apply_filter=False):
+            member = self.by_value.get(tool.name)
+            self.assertIsNotNone(member, f"{tool.name} is not in TigerGraphToolName")
+            if member not in self.dispatched:
+                missing.append(tool.name)
+        self.assertEqual(missing, [], f"served but not dispatchable: {missing}")
+
+    def test_the_check_would_notice_a_missing_arm(self):
+        # Guards the guard: if the regex stopped matching, the test above would
+        # pass vacuously.
+        self.assertIn("GET_DATA_SOURCE_TYPES", self.dispatched)
+        self.assertNotIn("NOT_A_REAL_TOOL", self.dispatched)
+
+    def test_no_arm_points_at_a_tool_that_no_longer_exists(self):
+        known = {m.name for m in TigerGraphToolName}
+        self.assertEqual(self.dispatched - known, set())
 
 
 if __name__ == "__main__":
