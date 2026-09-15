@@ -576,7 +576,11 @@ async def get_workflow(workflow_type: str) -> List[TextContent]:
 async def get_tool_info(tool_name: str) -> List[TextContent]:
     """Get detailed information about a specific tool."""
     
-    if tool_name not in TOOL_METADATA:
+    # A tool the deployment withheld is not described either: discover_tools
+    # already omits it, and reporting its details here would work around that.
+    from .. import tool_filter
+
+    if tool_name not in TOOL_METADATA or not tool_filter.is_served(tool_name):
         return format_success(
             operation="get_tool_info",
             summary=f"Error: Tool '{tool_name}' not found",

@@ -147,3 +147,40 @@ def apply(tools: Sequence[Tool]) -> List[Tool]:
         # Narrowing only: intersect with what the deployment already allows.
         result = select(result, session_spec, None)
     return result
+
+
+def served_names() -> Set[str]:
+    """Names of the tools reachable by the current request.
+
+    Reflects both the deployment's selection and any narrowing this request
+    asked for.
+    """
+    # Imported here: the registry imports this module to apply the selection.
+    from .tools import get_all_tools
+
+    return {t.name for t in get_all_tools()}
+
+
+def is_served(name: str) -> bool:
+    """Whether ``name`` may be reached by the current request.
+
+    Withholding a tool has to hold at dispatch, not just in the advertised
+    list: a client that already knows a name would otherwise call it anyway,
+    and a narrowed list would be a menu rather than a restriction.
+    """
+    return name in served_names()
+
+
+def withheld(name: str) -> bool:
+    """Whether ``name`` is a real tool that this request may not reach.
+
+    False for a name this package does not implement at all. A misspelt tool
+    and a withheld one are different problems, and answering "not available"
+    to a typo sends the caller looking for a configuration change instead of
+    at their spelling.
+    """
+    from .tools import get_all_tools
+
+    if is_served(name):
+        return False
+    return name in {t.name for t in get_all_tools(apply_filter=False)}

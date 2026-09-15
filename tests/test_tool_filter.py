@@ -234,5 +234,135 @@ class TestSessionNarrowing(unittest.TestCase):
         self.assertEqual(self.apply(None), NAMES - DESTRUCTIVE)
 
 
+class TestWithheldToolsCannotBeDispatched(unittest.IsolatedAsyncioTestCase):
+    """Withholding a tool must hold at dispatch, not just in the listing.
+
+    Filtering the advertised list alone makes the selection a menu rather than
+    a restriction: an agent that already knows a tool name -- from another
+    deployment, its training, or a previous session -- can call it directly.
+    A deployment that starts with --blocked-tools destructive believes those
+    tools are unreachable.
+    """
+
+    TOOL = "tigergraph__get_data_source_types"
+
+    def setUp(self):
+        prior = tool_filter.configured()
+        self.addCleanup(
+            lambda: tool_filter.configure(allowed=prior[0], blocked=prior[1])
+        )
+
+    async def call(self):
+        from tigergraph_mcp.server import MCPServer
+
+        result = await MCPServer()._handle_call_tool(self.TOOL, {})
+        return result[0].text
+
+    async def test_a_blocked_tool_is_refused_when_called_directly(self):
+        tool_filter.configure(blocked="get_data_source_types")
+        text = await self.call()
+        self.assertIn('"success": false', text)
+        self.assertIn("not available", text)
+
+    async def test_a_tool_outside_the_allow_list_is_refused(self):
+        tool_filter.configure(allowed="schema")
+        self.assertIn('"success": false', await self.call())
+
+    async def test_a_served_tool_still_works(self):
+        # The guard must not refuse what the deployment does offer.
+        tool_filter.configure(allowed="loading")
+        self.assertIn('"success": true', await self.call())
+
+    async def test_an_unfiltered_server_serves_everything(self):
+        tool_filter.configure()
+        self.assertIn('"success": true', await self.call())
+
+    async def test_the_refusal_does_not_name_the_configuration(self):
+        # How the deployment was configured is not the caller's business.
+        tool_filter.configure(blocked="get_data_source_types")
+        text = await self.call()
+        for leak in ("TG_ALLOWED_TOOLS", "TG_BLOCKED_TOOLS",
+                     "--allowed-tools", "--blocked-tools"):
+            self.assertNotIn(leak, text)
+
+    async def test_a_session_narrowed_tool_is_refused(self):
+        # The X-TG-Tools header narrows one session; that must bind dispatch
+        # too, which is the case that matters most for a shared HTTP server.
+        tool_filter.configure()
+        token = tool_filter.set_session_selector("schema")
+        try:
+            self.assertIn('"success": false', await self.call())
+        finally:
+            tool_filter.reset_session_selector(token)
+
+    async def test_the_narrowing_ends_with_the_session(self):
+        tool_filter.configure()
+        token = tool_filter.set_session_selector("schema")
+        tool_filter.reset_session_selector(token)
+        self.assertIn('"success": true', await self.call())
+
+    async def test_an_unknown_tool_is_still_reported_as_unknown(self):
+        from tigergraph_mcp.server import MCPServer
+
+        tool_filter.configure()
+        result = await MCPServer()._handle_call_tool("tigergraph__nope", {})
+        self.assertIn("Unknown tool", result[0].text)
+
+
+class TestWithheldToolsAreNotDescribed(unittest.IsolatedAsyncioTestCase):
+    """Discovery must not work around the selection either."""
+
+    TOOL = "tigergraph__get_data_source_types"
+
+    def setUp(self):
+        prior = tool_filter.configured()
+        self.addCleanup(
+            lambda: tool_filter.configure(allowed=prior[0], blocked=prior[1])
+        )
+
+    async def info(self):
+        from tigergraph_mcp.tools.discovery_tools import get_tool_info
+
+        return (await get_tool_info(tool_name=self.TOOL))[0].text
+
+    async def test_a_withheld_tool_is_not_described(self):
+        tool_filter.configure(blocked="get_data_source_types")
+        self.assertIn("not found", await self.info())
+
+    async def test_a_served_tool_is_still_described(self):
+        tool_filter.configure()
+        self.assertNotIn("not found", await self.info())
+
+    async def test_discovery_omits_withheld_tools(self):
+        from tigergraph_mcp.tools.discovery_tools import discover_tools
+
+        tool_filter.configure(blocked="get_data_source_types")
+        text = (await discover_tools(task_description="list data source types"))[0].text
+        self.assertNotIn("get_data_source_types", text)
+
+
+class TestServedNames(unittest.TestCase):
+
+    def setUp(self):
+        prior = tool_filter.configured()
+        self.addCleanup(
+            lambda: tool_filter.configure(allowed=prior[0], blocked=prior[1])
+        )
+
+    def test_served_names_match_the_advertised_list(self):
+        # The guard and the listing must not drift apart.
+        tool_filter.configure(allowed="read-only")
+        self.assertEqual(
+            tool_filter.served_names(),
+            {t.name for t in get_all_tools()},
+        )
+
+    def test_is_served_agrees_with_served_names(self):
+        tool_filter.configure(allowed="schema")
+        served = tool_filter.served_names()
+        for name in NAMES:
+            self.assertEqual(tool_filter.is_served(name), name in served, name)
+
+
 if __name__ == "__main__":
     unittest.main()
