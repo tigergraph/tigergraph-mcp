@@ -34,6 +34,7 @@ from typing import Any, Dict, Iterable, Mapping, Optional, Tuple
 from pyTigerGraph import AsyncTigerGraphConnection
 from pyTigerGraph.common.exception import TigerGraphException
 
+from .tool_filter import reset_session_selector, set_session_selector
 from .connection_manager import (
     resolve_profile_name,
     validate_connection,
@@ -63,6 +64,8 @@ SSL_PORT_HEADER = "x-tg-ssl-port"
 TG_CLOUD_HEADER = "x-tg-tgcloud"
 CERT_PATH_HEADER = "x-tg-cert-path"
 PROFILE_HEADER = "x-tg-profile"
+# Narrows the tool list for this session; it can never widen it.
+TOOLS_HEADER = "x-tg-tools"
 # Set by the client on every request after the session is established.
 MCP_SESSION_HEADER = "mcp-session-id"
 
@@ -159,10 +162,26 @@ def _resolve(headers: Mapping[str, str]) -> Tuple[Optional[Dict[str, Any]], int,
                 "X-TG-Username with X-TG-Password."
             )
 
+    # How the caller proved its identity, recorded here rather than derived
+    # later: password auth mints a token and _validate stores it on these
+    # credentials, after which the mode can no longer be read back off them.
+    if jwt_token:
+        auth_mode = "jwt"
+    elif api_token:
+        auth_mode = "token"
+    elif secret:
+        auth_mode = "secret"
+    else:
+        auth_mode = "password"
+
     return {
         "profile": profile,
         "host": host,
         "graphname": headers.get(GRAPHNAME_HEADER) or topology["graphname"],
+        "auth_mode": auth_mode,
+        # Whether an account name was actually resolved, as opposed to the
+        # placeholder below. Token and secret auth do not name an account.
+        "username_supplied": bool(username),
         "username": username or "tigergraph",
         "password": password or "tigergraph",
         "secret": secret,
@@ -289,10 +308,17 @@ class CredentialHeadersMiddleware:
                 )
                 return
 
+        # Carried so a tool-call log line can be correlated to a session. The
+        # establishing request has no session id yet — that is what
+        # ``establishing`` above tests for — so this is empty for that one.
+        creds["session_id"] = headers.get(MCP_SESSION_HEADER, "")
+
         token = set_pending_credentials(creds)
+        tools_token = set_session_selector(headers.get(TOOLS_HEADER))
         try:
             await self.app(scope, receive, send)
         finally:
+            reset_session_selector(tools_token)
             reset_pending_credentials(token)
 
 

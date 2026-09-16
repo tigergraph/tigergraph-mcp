@@ -49,6 +49,7 @@ def session_idle_timeout() -> float:
 def session_sweep_interval() -> float:
     return _float_env("TG_HTTP_SESSION_SWEEP_INTERVAL", DEFAULT_SESSION_SWEEP_INTERVAL)
 
+from . import call_log, tool_filter
 from .tool_names import TigerGraphToolName
 from .response_formatter import format_error
 from .connection_manager import (
@@ -339,6 +340,23 @@ class MCPServer:
     ) -> List[TextContent]:
         """Handle tool calls."""
         session_cm = await self._session_manager_for_current_request(session)
+        # Read the credentials rather than the session's connection: the
+        # ``authenticate`` tool can re-point a live session, so the identity
+        # behind a call is whatever this request carried.
+        call_log.log_call(name, get_pending_credentials())
+
+        # A withheld tool must be unreachable, not merely unadvertised. The
+        # check is here rather than on the listing alone because a client that
+        # already knows the name would otherwise dispatch straight past it.
+        if tool_filter.withheld(name):
+            return format_error(
+                operation=name,
+                error=f"Tool '{name}' is not available on this server.",
+                suggestions=[
+                    "Use discover_tools() to see the tools this server offers",
+                ],
+            )
+
         bind_cm = (
             use_session_manager(session_cm)
             if session_cm is not None

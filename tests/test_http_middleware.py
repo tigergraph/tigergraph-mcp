@@ -509,5 +509,159 @@ class TestProfileResolution(unittest.TestCase):
         self.assertEqual(self.resolve({"x-tg-profile": "DEMO"})["profile"], "demo")
 
 
+class TestAuditFields(unittest.TestCase):
+    """Fields the resolved credentials carry for tool-call logging.
+
+    The auth mode has to be recorded at resolution time: validation mints a
+    token and stores it on the credentials, after which the mode can no
+    longer be read back off them.
+    """
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, SERVER_PROFILES, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def resolve(self, headers):
+        return http_middleware._parse_credentials(headers)
+
+    def test_password_auth_records_the_mode_and_the_account(self):
+        creds = self.resolve({"x-tg-username": "alice", "x-tg-password": "pw"})
+        self.assertEqual(creds["auth_mode"], "password")
+        self.assertTrue(creds["username_supplied"])
+
+    def test_jwt_auth_records_no_account(self):
+        creds = self.resolve({"x-tg-jwt-token": "jwt"})
+        self.assertEqual(creds["auth_mode"], "jwt")
+        self.assertFalse(creds["username_supplied"])
+        # The username is a placeholder, not an account anyone authenticated as.
+        self.assertEqual(creds["username"], "tigergraph")
+
+    def test_api_token_auth_records_no_account(self):
+        creds = self.resolve({"x-tg-api-token": "tok"})
+        self.assertEqual(creds["auth_mode"], "token")
+        self.assertFalse(creds["username_supplied"])
+
+    def test_secret_auth_records_no_account(self):
+        creds = self.resolve({"x-tg-secret": "sec"})
+        self.assertEqual(creds["auth_mode"], "secret")
+        self.assertFalse(creds["username_supplied"])
+
+    def test_jwt_wins_when_several_credentials_are_sent(self):
+        creds = self.resolve({
+            "x-tg-jwt-token": "jwt", "x-tg-api-token": "tok",
+            "x-tg-username": "alice", "x-tg-password": "pw",
+        })
+        self.assertEqual(creds["auth_mode"], "jwt")
+        # An account was named alongside the token, so it is a real one.
+        self.assertTrue(creds["username_supplied"])
+
+    def test_profile_credentials_count_as_a_supplied_account(self):
+        # Configured server-side rather than sent, but still a real account.
+        creds = self.resolve({"x-tg-profile": "demo"})
+        self.assertEqual(creds["auth_mode"], "password")
+        self.assertTrue(creds["username_supplied"])
+
+    def test_session_id_is_attached_for_the_downstream_app(self):
+        app = _CapturingApp()
+        mw = CredentialHeadersMiddleware(app, validate=False)
+        headers = {
+            "x-tg-username": "alice", "x-tg-password": "pw",
+            "mcp-session-id": "sess-7",
+        }
+        asyncio.run(mw(_scope(headers), _noop_receive, _Inbox()))
+        self.assertEqual(app.creds_seen["session_id"], "sess-7")
+
+    def test_establishing_request_has_no_session_id_yet(self):
+        app = _CapturingApp()
+        mw = CredentialHeadersMiddleware(app, validate=False)
+        headers = {"x-tg-username": "alice", "x-tg-password": "pw"}
+        asyncio.run(mw(_scope(headers), _noop_receive, _Inbox()))
+        self.assertEqual(app.creds_seen["session_id"], "")
+
+
+class TestUnreachableServerIsNotAnAuthFailure(unittest.TestCase):
+    """A server that cannot be reached must not be reported as bad credentials.
+
+    The distinction is the whole point of the status codes here: 401 tells a
+    caller to fix its credentials, 502 tells it to fix the host, ports, or
+    network path. Conflating them sends people hunting the wrong problem.
+    """
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, SERVER_PROFILES, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.headers = {"x-tg-username": "alice", "x-tg-password": "pw"}
+
+    def run_with_validation_raising(self, exc):
+        app = _CapturingApp()
+        mw = CredentialHeadersMiddleware(app, validate=True)
+        inbox = _Inbox()
+        with mock.patch.object(http_middleware, "_validate",
+                               side_effect=exc):
+            asyncio.run(mw(_scope(self.headers), _noop_receive, inbox))
+        start = next(e for e in inbox.events if e["type"] == "http.response.start")
+        body = next(e for e in inbox.events if e["type"] == "http.response.body")
+        return app, start["status"], json.loads(body["body"])["error"]
+
+    def test_timeout_is_502_and_names_the_host(self):
+        app, status, error = self.run_with_validation_raising(asyncio.TimeoutError())
+        self.assertEqual(status, 502)
+        self.assertIn("http://default.tg", error)
+        self.assertIn("timed out", error)
+        self.assertFalse(app.called, "an unreachable server must not be served")
+
+    def test_timeout_reports_the_configured_budget(self):
+        with mock.patch.dict(os.environ, {"TG_HTTP_VALIDATE_TIMEOUT": "3"}):
+            _, _, error = self.run_with_validation_raising(asyncio.TimeoutError())
+        self.assertIn("3s", error)
+
+    def test_connection_error_is_502_not_401(self):
+        app, status, error = self.run_with_validation_raising(
+            OSError("connection refused")
+        )
+        self.assertEqual(status, 502)
+        self.assertIn("connection refused", error)
+        self.assertNotIn("rejected the credentials", error)
+        self.assertFalse(app.called)
+
+    def test_rejected_credentials_are_401_not_502(self):
+        # The other side of the same distinction.
+        app, status, error = self.run_with_validation_raising(
+            TigerGraphException("bad password")
+        )
+        self.assertEqual(status, 401)
+        self.assertIn("rejected the credentials", error)
+        self.assertFalse(app.called)
+
+    def test_a_broken_close_does_not_fail_a_good_credential(self):
+        # _validate closes its probe connection in a finally block. If that
+        # close throws, the credential was still proven and the request must
+        # proceed rather than 502 on a cleanup detail.
+        conn = mock.Mock()
+        conn.apiToken = "minted"
+        conn.aclose = mock.AsyncMock(side_effect=RuntimeError("socket already gone"))
+        creds = {"host": "http://default.tg", "username": "alice", "password": "pw"}
+        with mock.patch.object(http_middleware, "_build_connection", return_value=conn), \
+             mock.patch.object(http_middleware, "validate_connection",
+                               new=mock.AsyncMock()):
+            asyncio.run(http_middleware._validate(creds))
+        self.assertEqual(creds["api_token"], "minted")
+
+    def test_a_502_carries_no_www_authenticate(self):
+        # That header would invite a client to retry with other credentials,
+        # which cannot help when the server is unreachable.
+        app = _CapturingApp()
+        mw = CredentialHeadersMiddleware(app, validate=True)
+        inbox = _Inbox()
+        with mock.patch.object(http_middleware, "_validate",
+                               side_effect=asyncio.TimeoutError()):
+            asyncio.run(mw(_scope(self.headers), _noop_receive, inbox))
+        start = next(e for e in inbox.events if e["type"] == "http.response.start")
+        names = [k.decode().lower() for k, _ in start["headers"]]
+        self.assertNotIn("www-authenticate", names)
+
+
 if __name__ == "__main__":
     unittest.main()

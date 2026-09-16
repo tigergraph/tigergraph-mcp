@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-09-14
+
+### Added
+
+- **Serve a subset of the tools** — `--allowed-tools` and `--blocked-tools`, or `TG_ALLOWED_TOOLS` and `TG_BLOCKED_TOOLS`, narrow the tool list a client receives. A selector is a comma-separated list of categories (`schema`, `data`, `query`, `vector`, `loading`, `utility`, `discovery`), the capabilities `read-only` or `destructive`, or individual tool names. An unrecognised selector is reported at startup rather than silently serving a short list. Serving only the tools that read cuts the tool payload an agent carries by well over half.
+- **HTTP sessions can narrow the list further** — an `X-TG-Tools` header restricts a single session to a subset of what the deployment already serves. It can never widen it, so a client cannot reach a tool the deployment withheld.
+- **Every tool now declares what it does** — the MCP behavioural hints `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint` are attached to all tools, so a client can run reads without prompting and ask before anything that removes data. Tools that execute caller-supplied query text are marked destructive, since what they do depends on the text.
+- **Tool-call logging** — `--log-tool-calls`, or `TG_LOG_TOOL_CALLS`, writes one line per tool call to stderr recording the tool, the MCP session, and the TigerGraph host. Off by default. A shared HTTP deployment previously kept no record of what had been run against an instance; only failures were logged, and not even with the tool name.
+- **Opt-in caller identity in those lines** — `--log-caller none|profile|username`, or `TG_LOG_CALLER_IDENTITY`, chooses whether a line names the connection profile a call used, the TigerGraph account as well, or neither. It defaults to `none` and requires tool-call logging to be on — on its own it does nothing, and the server says so at startup. It is deliberately separate from turning logging on, because an account name generally identifies a person and the server should not write personal data into a deployment's logs unasked. Callers who authenticate with a token or a GSQL secret are recorded as an unknown account rather than under the placeholder username the server uses internally. Credentials and tool arguments are never logged at any setting.
+
 ## [1.0.2] - 2026-08-26
 
 ### Added
