@@ -1,5 +1,7 @@
 # tigergraph-mcp
 
+<!-- mcp-name: io.github.tigergraph/tigergraph-mcp -->
+
 Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact with TigerGraph through the MCP standard. All tools use pyTigerGraph's async APIs for optimal performance.
 
 ## Table of Contents
