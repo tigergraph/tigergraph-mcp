@@ -363,5 +363,44 @@ class TestEveryServedToolIsDispatchable(unittest.TestCase):
         self.assertEqual(self.dispatched - known, set())
 
 
+class TestServerReportsItsVersion(unittest.TestCase):
+    """The server names its own version, not the SDK's.
+
+    Without it the SDK reports its own version as the server's, so a client
+    cannot tell which tigergraph-mcp it is connected to. That matters most for
+    installs that never named a version -- a Claude Code plugin or a registry
+    entry pins one on the user's behalf.
+    """
+
+    def test_the_package_version_is_offered_to_the_sdk(self):
+        import tigergraph_mcp
+
+        self.assertEqual(
+            MCPServer._version_kwarg(), {"version": tigergraph_mcp.__version__}
+        )
+
+    def test_it_is_not_the_sdk_version(self):
+        import mcp.types as _t
+
+        reported = MCPServer._version_kwarg().get("version")
+        self.assertIsNotNone(reported)
+        self.assertNotEqual(reported, getattr(_t, "LATEST_PROTOCOL_VERSION", None))
+
+    def test_an_sdk_without_the_parameter_is_tolerated(self):
+        # Passing an unknown keyword would break startup outright, so the
+        # constructor is probed rather than assumed. The 1.x and 2.x signatures
+        # differ, and only one of them can be installed here.
+        class _NoVersion:
+            def __init__(self, name):
+                pass
+
+        with mock.patch("tigergraph_mcp.server.Server", _NoVersion):
+            self.assertEqual(MCPServer._version_kwarg(), {})
+
+    def test_both_modes_still_build(self):
+        self.assertIsNotNone(MCPServer(multi_session=False).server)
+        self.assertIsNotNone(MCPServer(multi_session=True).server)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,7 @@
 # tigergraph-mcp
 
+<!-- mcp-name: io.github.tigergraph/tigergraph-mcp -->
+
 Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact with TigerGraph through the MCP standard. All tools use pyTigerGraph's async APIs for optimal performance.
 
 ## Table of Contents
@@ -11,6 +13,7 @@ Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact w
   - [Running the MCP Server](#running-the-mcp-server)
     - [stdio (single user, one IDE/agent)](#stdio-default--single-user-one-ideagent)
     - [Streamable HTTP / SSE (multi-user, shared server)](#streamable-http--sse-multi-user-shared-server)
+  - [Use with Claude Code](#use-with-claude-code)
   - [Configuration](#configuration)
   - [Multiple Connection Profiles](#multiple-connection-profiles)
   - [HTTP Mode End-to-End](#http-mode-end-to-end)
@@ -163,6 +166,41 @@ does not read standard input at all. Requires `uvicorn` and `starlette`.
 
 [HTTP Mode End-to-End](#http-mode-end-to-end) walks through configuring, starting, and
 connecting to one.
+
+### Use with Claude Code
+
+`tigergraph-mcp` ships as a Claude Code plugin, which replaces installing the package,
+writing a `.env`, and hand-writing an MCP client config. Claude Code prompts for the
+connection details and launches the server itself.
+
+Requires [uv](https://docs.astral.sh/uv/) on your PATH — the plugin runs the server with
+`uvx`, which fetches it from PyPI on demand. `uv` can also provide a suitable Python, so
+nothing else needs installing.
+
+```bash
+claude plugin marketplace add tigergraph/tigergraph-mcp
+claude plugin install tigergraph@tigergraph
+```
+
+Claude Code then asks for the TigerGraph host (required), and optionally a username,
+password, default graph, API token, and a tool selection. The password and API token are
+masked and held in secure storage rather than a settings file. To change any of them
+later, open `/plugin`, select **TigerGraph (Self-Managed MCP)** on the **Installed** tab,
+and choose **Configure options** — no reinstall needed.
+
+Supplying an API token makes it take precedence over the password.
+
+The tool selection accepts the same selectors as `--allowed-tools`
+([Serving a Subset of the Tools](#serving-a-subset-of-the-tools)); leaving it empty offers
+all of them.
+
+In permission rules, a skill's `allowed-tools`, or a hook matcher, the plugin's server is
+named `plugin:tigergraph:tigergraph`. A pattern like `mcp__tigergraph__.*` does **not**
+match a plugin-provided server.
+
+If you would rather not install `uv`, install the package yourself and point a plain MCP
+client config at the `tigergraph-mcp` command, as in
+[stdio](#stdio-default--single-user-one-ideagent) above.
 
 ### Configuration
 

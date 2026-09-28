@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "tigergraph": {
+      "command": "uvx",
+      "args": [
+        "tigergraph-mcp@1.0.4"
+      ],
+      "env": {
+        "TG_HOST": "${user_config.tg_host}",
+        "TG_USERNAME": "${user_config.tg_username}",
+        "TG_PASSWORD": "${user_config.tg_password}",
+        "TG_GRAPHNAME": "${user_config.tg_graphname}",
+        "TG_API_TOKEN": "${user_config.tg_api_token}",
+        "TG_ALLOWED_TOOLS": "${user_config.tg_allowed_tools}"
+      }
+    }
+  }
+}
