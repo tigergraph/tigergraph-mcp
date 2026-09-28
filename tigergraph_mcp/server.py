@@ -9,6 +9,7 @@
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import os
 import time
@@ -177,10 +178,31 @@ class MCPServer:
         self._session_last_used: Dict[int, float] = {}
         self.server = self._build_server(name)
 
+    @staticmethod
+    def _version_kwarg() -> Dict[str, str]:
+        """``version=`` for the SDK constructor, when it accepts one.
+
+        Without it the SDK reports its own version as the server's, so a client
+        cannot tell which tigergraph-mcp it is talking to — which matters most
+        for installs that never named a version, such as a plugin or a registry
+        entry. Probed rather than assumed, because the 1.x and 2.x constructors
+        differ and passing an unknown keyword would break startup outright.
+        """
+        # Imported here: the package's __init__ imports this module, so the
+        # attribute does not exist yet at import time.
+        from . import __version__
+
+        try:
+            accepted = inspect.signature(Server.__init__).parameters
+        except (TypeError, ValueError):  # pragma: no cover - exotic SDK build
+            return {}
+        return {"version": __version__} if "version" in accepted else {}
+
     def _build_server(self, name: str) -> Server:
         """Construct the SDK server, registering handlers the way it expects."""
+        version = self._version_kwarg()
         if _SDK_HAS_DECORATORS:
-            server = Server(name)
+            server = Server(name, **version)
             server.list_tools()(self._handle_list_tools)
             server.call_tool()(self._handle_call_tool)
             return server
@@ -189,6 +211,7 @@ class MCPServer:
             name,
             on_list_tools=self._on_list_tools,
             on_call_tool=self._on_call_tool,
+            **version,
         )
 
     async def _session_manager_for_current_request(
