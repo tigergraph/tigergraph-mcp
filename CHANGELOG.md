@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-09-28
+
+### Added
+
+- **Install as a Claude Code plugin** — the repository is now a plugin marketplace, so `claude plugin marketplace add tigergraph/tigergraph-mcp` followed by `claude plugin install tigergraph@tigergraph` replaces installing the package, writing a `.env`, and hand-writing an MCP client config. Claude Code prompts for the TigerGraph host and credentials, holds the password and API token in secure storage, and launches the server with `uvx`. Connection details can be changed later without reinstalling. Requires `uv` on the PATH; the existing pip and conda installs are unaffected.
+- **Listed in the official MCP Registry** — a `server.json` describes the published PyPI package, so MCP clients and directories that consume the registry can discover the server.
+
 ## [1.0.3] - 2026-09-14
 
 ### Added
