@@ -120,6 +120,34 @@ class TestGetNodeDegree(MCPToolTestBase):
         query_arg = self.mock_conn.runInterpretedQuery.call_args[0][0]
         self.assertIn("FOLLOWS", query_arg)
 
+    @patch(PATCH_TARGET)
+    async def test_vertex_id_is_escaped(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.runInterpretedQuery.return_value = [{"outgoing": 0, "incoming": 0}]
+
+        await get_node_degree(vertex_type="Person", vertex_id='x"); PRINT 1; //')
+        query_arg = self.mock_conn.runInterpretedQuery.call_args[0][0]
+        self.assertIn('to_vertex("x\\"); PRINT 1; //", "Person")', query_arg)
+
+    @patch(PATCH_TARGET)
+    async def test_multiple_edge_types(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.runInterpretedQuery.return_value = [{"outgoing": 0, "incoming": 0}]
+
+        await get_node_degree(vertex_type="Person", vertex_id="u1", edge_type="FOLLOWS|LIKES")
+        query_arg = self.mock_conn.runInterpretedQuery.call_args[0][0]
+        self.assertIn('outdegree(["FOLLOWS", "LIKES"])', query_arg)
+        self.assertIn("((FOLLOWS|LIKES):e)", query_arg)
+
+    @patch(PATCH_TARGET)
+    async def test_invalid_type_rejected_before_running(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+
+        for kwargs in ({"vertex_type": 'Person")'}, {"vertex_type": "Person", "edge_type": 'A", "B'}):
+            result = await get_node_degree(vertex_id="u1", **kwargs)
+            self.assert_error(result)
+        self.mock_conn.runInterpretedQuery.assert_not_called()
+
 
 class TestProfilePropagation(MCPToolTestBase):
     """Verify profile is forwarded to get_connection for statistics tools."""

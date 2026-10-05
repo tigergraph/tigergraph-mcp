@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-09-28
+
+### Added
+
+- **Install as a Claude Code plugin** — the repository is now a plugin marketplace, so `claude plugin marketplace add tigergraph/tigergraph-mcp` followed by `claude plugin install tigergraph@tigergraph` replaces installing the package, writing a `.env`, and hand-writing an MCP client config. Claude Code prompts for the TigerGraph host and credentials, holds the password and API token in secure storage, and launches the server with `uvx`. Connection details can be changed later without reinstalling. Requires `uv` on the PATH; the existing pip and conda installs are unaffected.
+- **The server reports its own version** — an MCP client's `serverInfo` now carries the tigergraph-mcp version rather than the SDK's, so it is possible to tell which version a session is connected to. This matters for installs that never named one, such as the plugin or a registry entry.
+- **Listed in the official MCP Registry** — a `server.json` describes the published PyPI package, so MCP clients and directories that consume the registry can discover the server.
+- **`run_query` accepts parameters** — a new `params` argument supplies values for the parameters an interpreted query declares, such as `INTERPRET QUERY (INT top_k) …` with `{"top_k": 5}`. TigerGraph's interpreted-query endpoint has always accepted them, but the tool offered no way to pass them, so an agent had to write values into the query text instead.
+- **`run_installed_query` can bound a query's time and resources** — new `timeout_ms`, `size_limit_bytes`, `thread_limit`, `memory_limit_mb`, and `replica` arguments. A long-running query could previously only run within the server's default timeout, and nothing could cap what a query consumed.
+
+### Changed
+
+- **Minimum `pyTigerGraph` version raised to `2.0.5`** (was `2.0.4`). Earlier versions garble `run_query` parameter values that contain spaces, quotes, `&`, `%`, `#`, or non-ASCII characters.
+
+### Fixed
+
+- **`get_neighbors` and `get_node_degree` handle any vertex ID** — an ID containing a double quote broke the generated query, and text after the quote was run as GSQL. Vertex IDs are now escaped, and vertex and edge type names that are not valid identifiers are rejected before anything runs.
+
 ## [1.0.3] - 2026-09-14
 
 ### Added

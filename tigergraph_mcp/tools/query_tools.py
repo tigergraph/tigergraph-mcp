@@ -15,6 +15,7 @@ from mcp.types import Tool, TextContent
 from ..tool_names import TigerGraphToolName
 from ..connection_manager import get_connection
 from ..response_formatter import format_success, format_error, gsql_has_error
+from .gsql_text import gsql_identifier, gsql_identifier_list, gsql_string, positive_int
 from pyTigerGraph.common.exception import TigerGraphException
 
 
@@ -33,6 +34,14 @@ class RunQueryToolInput(BaseModel):
             "Example (Cypher): `INTERPRET OPENCYPHER QUERY () FOR GRAPH MyGraph { MATCH (n) RETURN n LIMIT 5 }`"
         )
     )
+    params: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description=(
+            "Values for the parameters declared in the query's parameter list, keyed by name. "
+            "Example: query_text `INTERPRET QUERY (INT top_k) FOR GRAPH MyGraph { ... }` "
+            "with params `{\"top_k\": 5}`. Use a list for SET or BAG parameters."
+        ),
+    )
 
 
 class RunInstalledQueryToolInput(BaseModel):
@@ -41,6 +50,11 @@ class RunInstalledQueryToolInput(BaseModel):
     graph_name: Optional[str] = Field(None, description="Name of the graph. If not provided, uses default connection.")
     query_name: str = Field(..., description="Name of the installed query.")
     params: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Query parameters.")
+    timeout_ms: Optional[int] = Field(None, description="Maximum time the query may run, in milliseconds. Omit to use the server's default.")
+    size_limit_bytes: Optional[int] = Field(None, description="Maximum size of the query's response, in bytes.")
+    thread_limit: Optional[int] = Field(None, description="Maximum number of threads the query may use on each node.")
+    memory_limit_mb: Optional[int] = Field(None, description="Maximum memory the query may use on each node, in MB. The query stops if it exceeds this.")
+    replica: Optional[int] = Field(None, description="Replica to run the query on, in a cluster with more than one replica.")
 
 
 class InstallQueryToolInput(BaseModel):
@@ -148,7 +162,9 @@ run_query_tool = Tool(
         
         "**Warning: Syntax Notes:**\n"
         "  • GSQL: `INTERPRET QUERY () FOR GRAPH <name> { <statements> }`\n"
-        "  • Cypher: `INTERPRET OPENCYPHER QUERY () FOR GRAPH <name> { <cypher> }`\n\n"
+        "  • Cypher: `INTERPRET OPENCYPHER QUERY () FOR GRAPH <name> { <cypher> }`\n"
+        "  • Parameters: declare them in the parentheses and pass values in 'params', "
+        "e.g. `INTERPRET QUERY (INT top_k) ...` with `{\"top_k\": 5}`\n\n"
         
         "**Related Tools:** run_installed_query, install_query, get_neighbors"
     ),
@@ -184,7 +200,8 @@ run_installed_query_tool = Tool(
         "  • Queries must be installed first with 'install_query'\n"
         "  • Use 'is_query_installed' to check if query exists\n"
         "  • Provide params as dictionary matching query signature\n"
-        "  • Faster than interpreted queries\n\n"
+        "  • Faster than interpreted queries\n"
+        "  • For a long-running query, raise 'timeout_ms'; to cap resource use, set 'memory_limit_mb' or 'thread_limit'\n\n"
         
         "**Related Tools:** install_query, is_query_installed, show_query"
     ),
@@ -442,6 +459,7 @@ get_neighbors_tool = Tool(
 
 async def run_query(
     query_text: str,
+    params: Optional[Dict[str, Any]] = None,
     profile: Optional[str] = None,
     graph_name: Optional[str] = None,
 ) -> List[TextContent]:
@@ -454,6 +472,7 @@ async def run_query(
         query_text: The query text to run. Must include the full INTERPRET wrapper:
             - GSQL: INTERPRET QUERY () FOR GRAPH <graph> { <statements> }
             - openCypher: INTERPRET OPENCYPHER QUERY () FOR GRAPH <graph> { <statements> }
+        params: Optional values for the parameters declared in the query.
         graph_name: Optional graph name.
     """
     try:
@@ -466,13 +485,14 @@ async def run_query(
         else:
             query_type = "GSQL"
         
-        result = await conn.runInterpretedQuery(query_text)
+        result = await conn.runInterpretedQuery(query_text, params or None)
         
         return format_success(
             operation="run_query",
             summary=f"Success: {query_type} query executed successfully",
             data={
                 "query_type": query_type,
+                "parameters": params or {},
                 "result": result,
                 "query_text_preview": query_text[:200] + "..." if len(query_text) > 200 else query_text
             },
@@ -494,6 +514,7 @@ async def run_query(
             error=Exception(f"{error_msg}{error_code}"),
             context={
                 "query_type": "GSQL/openCypher",
+                "parameters": params or {},
                 "graph_name": graph_name or "default"
             }
         )
@@ -510,13 +531,30 @@ async def run_query(
 async def run_installed_query(
     query_name: str,
     params: Optional[Dict[str, Any]] = None,
+    timeout_ms: Optional[int] = None,
+    size_limit_bytes: Optional[int] = None,
+    thread_limit: Optional[int] = None,
+    memory_limit_mb: Optional[int] = None,
+    replica: Optional[int] = None,
     profile: Optional[str] = None,
     graph_name: Optional[str] = None,
 ) -> List[TextContent]:
-    """Run an installed query."""
+    """Run an installed query, optionally bounding its time and resources."""
     try:
         conn = get_connection(profile=profile, graph_name=graph_name)
-        result = await conn.runInstalledQuery(query_name, params or {})
+        limits = {
+            "timeout": (timeout_ms, "timeout_ms"),
+            "sizeLimit": (size_limit_bytes, "size_limit_bytes"),
+            "threadLimit": (thread_limit, "thread_limit"),
+            "memoryLimit": (memory_limit_mb, "memory_limit_mb"),
+            "replica": (replica, "replica"),
+        }
+        kwargs = {
+            key: positive_int(value, name)
+            for key, (value, name) in limits.items()
+            if value is not None
+        }
+        result = await conn.runInstalledQuery(query_name, params or {}, **kwargs)
         
         return format_success(
             operation="run_installed_query",
@@ -857,16 +895,24 @@ async def get_neighbors(
     try:
         conn = get_connection(profile=profile, graph_name=graph_name)
 
-        # Build the edge pattern
-        edge_pattern = f"(({edge_type}):e)" if edge_type else "(ANY:e)"
-        target_pattern = f"{target_vertex_type}:t" if target_vertex_type else "ANY:t"
-        limit_clause = f"LIMIT {limit}" if limit else ""
+        # Values go in as escaped literals and type names are validated, so
+        # caller input can never change the shape of the generated query.
+        seed_type = gsql_identifier(vertex_type, "vertex_type")
+        if edge_type:
+            edge_pattern = f"(({'|'.join(gsql_identifier_list(edge_type, 'edge_type'))}):e)"
+        else:
+            edge_pattern = "(ANY:e)"
+        if target_vertex_type:
+            target_pattern = f"{gsql_identifier(target_vertex_type, 'target_vertex_type')}:t"
+        else:
+            target_pattern = "ANY:t"
+        limit_clause = f"LIMIT {positive_int(limit, 'limit')}" if limit else ""
 
         query = f"""
         INTERPRET QUERY () FOR GRAPH {conn.graphname} {{
             SetAccum<VERTEX> @@seeds;
 
-            @@seeds += to_vertex("{vertex_id}", "{vertex_type}");
+            @@seeds += to_vertex({gsql_string(vertex_id)}, "{seed_type}");
             src = {{@@seeds}};
             neighbors = SELECT t FROM src:s -{edge_pattern}- {target_pattern}
                      {limit_clause};

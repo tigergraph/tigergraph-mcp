@@ -14,6 +14,7 @@ from mcp.types import Tool, TextContent
 from ..tool_names import TigerGraphToolName
 from ..connection_manager import get_connection
 from ..response_formatter import format_success, format_error
+from .gsql_text import gsql_identifier, gsql_identifier_list, gsql_string
 from pyTigerGraph.common.exception import TigerGraphException
 
 
@@ -205,18 +206,24 @@ async def get_node_degree(
     try:
         conn = get_connection(profile=profile, graph_name=graph_name)
 
+        # Values go in as escaped literals and type names are validated, so
+        # caller input can never change the shape of the generated query.
+        seed_vertex = f'to_vertex({gsql_string(vertex_id)}, "{gsql_identifier(vertex_type, "vertex_type")}")'
+
         # Build edge type parameter for v.outdegree()
         # If edge_type contains multiple types separated by |, convert to SET format
         if edge_type:
-            if '|' in edge_type:
+            edge_types = gsql_identifier_list(edge_type, "edge_type")
+            if len(edge_types) > 1:
                 # Multiple edge types: convert to SET<STRING> format
-                edge_types_list = [f'"{et.strip()}"' for et in edge_type.split('|')]
-                edge_param = f"[{', '.join(edge_types_list)}]"
+                edge_param = f"[{', '.join(gsql_string(et) for et in edge_types)}]"
             else:
                 # Single edge type: use STRING format
-                edge_param = f'"{edge_type}"'
+                edge_param = gsql_string(edge_types[0])
+            edge_filter = f"(({'|'.join(edge_types)}):e)"
         else:
             edge_param = ''
+            edge_filter = "(ANY:e)"
         
         # Build query based on direction
         if direction == "outgoing":
@@ -225,7 +232,7 @@ async def get_node_degree(
                 MaxAccum<INT> @@outgoing;
                 SetAccum<VERTEX> @@seeds;
                 
-                @@seeds += to_vertex("{vertex_id}", "{vertex_type}");
+                @@seeds += {seed_vertex};
                 seed = {{@@seeds}};
                 
                 result = SELECT s FROM seed:s
@@ -236,13 +243,12 @@ async def get_node_degree(
             """
         elif direction == "incoming":
             # For incoming, traverse from all vertices to our target
-            edge_filter = f"(({edge_type}):e)" if edge_type else "(ANY:e)"
             query = f"""
             INTERPRET QUERY () FOR GRAPH {conn.graphname} {{
                 SumAccum<INT> @@incoming;
                 SetAccum<VERTEX> @@seeds;
                 
-                @@seeds += to_vertex("{vertex_id}", "{vertex_type}");
+                @@seeds += {seed_vertex};
                 seed = {{@@seeds}};
                 
                 result = SELECT s FROM ANY:s -{edge_filter}- seed:t
@@ -251,14 +257,13 @@ async def get_node_degree(
             }}
             """
         else:  # direction == "both"
-            edge_filter = f"(({edge_type}):e)" if edge_type else "(ANY:e)"
             query = f"""
             INTERPRET QUERY () FOR GRAPH {conn.graphname} {{
                 MaxAccum<INT> @@outgoing;
                 SumAccum<INT> @@incoming;
                 SetAccum<VERTEX> @@seeds;
                 
-                @@seeds += to_vertex("{vertex_id}", "{vertex_type}");
+                @@seeds += {seed_vertex};
                 seed = {{@@seeds}};
                 
                 // Get outgoing degree using vertex function

@@ -305,10 +305,17 @@ TOOL_METADATA: Dict[str, ToolMetadata] = {
                 "parameters": {
                     "query_text": "INTERPRET OPENCYPHER QUERY () FOR GRAPH MyGraph { MATCH (n:Person) RETURN n LIMIT 5 }"
                 }
+            },
+            {
+                "description": "GSQL query with parameters",
+                "parameters": {
+                    "query_text": "INTERPRET QUERY (INT top_k) FOR GRAPH MyGraph { R = SELECT v FROM Person:v LIMIT top_k; PRINT R; }",
+                    "params": {"top_k": 5}
+                }
             }
         ]
     ),
-    
+
     "tigergraph__get_neighbors": ToolMetadata(
         category=ToolCategory.QUERY,
         prerequisites=[],

@@ -1,4 +1,4 @@
-{% set version = "1.0.3" %}
+{% set version = "1.0.4" %}
 {% set python_min = "3.10" %}
 
 package:
@@ -24,7 +24,7 @@ requirements:
     - wheel
   run:
     - python >={{ python_min }}
-    - pytigergraph >=2.0.4
+    - pytigergraph >=2.0.5
     - mcp >=1.0.0
     - pydantic >=2.0.0
     - click

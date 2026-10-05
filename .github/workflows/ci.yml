@@ -28,3 +28,26 @@ jobs:
 
       - name: Run tests
         run: python -m pytest tests/ -v --tb=short
+
+  plugin:
+    name: Plugin manifests and version consistency
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check the version matches everywhere it is declared
+        run: python scripts/check_versions.py
+
+      - name: Check the server is declared in .mcp.json, not inline
+        run: python scripts/check_plugin_layout.py
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Validate the marketplace manifest
+        run: claude plugin validate ./
+
+      - name: Validate the plugin manifest
+        run: claude plugin validate ./plugins/tigergraph --strict
