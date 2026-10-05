@@ -43,6 +43,29 @@ class TestRunQuery(MCPToolTestBase):
         self.assertEqual(resp["data"]["query_type"], "openCypher")
 
     @patch(PATCH_TARGET)
+    async def test_params_forwarded_with_types(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.runInterpretedQuery.return_value = [{"R": []}]
+
+        query = "INTERPRET QUERY (INT top_k, STRING name) FOR GRAPH G { PRINT top_k; }"
+        params = {"top_k": 5, "name": "alice"}
+        result = await run_query(query_text=query, params=params)
+        resp = self.assert_success(result)
+        self.mock_conn.runInterpretedQuery.assert_called_once_with(query, params)
+        self.assertEqual(resp["data"]["parameters"], params)
+
+    @patch(PATCH_TARGET)
+    async def test_no_params_sends_none(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.runInterpretedQuery.return_value = [{}]
+
+        query = "INTERPRET QUERY () FOR GRAPH G { PRINT 1; }"
+        for params in (None, {}):
+            self.mock_conn.runInterpretedQuery.reset_mock()
+            await run_query(query_text=query, params=params)
+            self.mock_conn.runInterpretedQuery.assert_called_once_with(query, None)
+
+    @patch(PATCH_TARGET)
     async def test_exception(self, mock_gc):
         mock_gc.return_value = self.mock_conn
         self.mock_conn.runInterpretedQuery.side_effect = Exception("syntax error")

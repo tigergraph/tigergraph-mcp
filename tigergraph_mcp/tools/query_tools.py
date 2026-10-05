@@ -33,6 +33,14 @@ class RunQueryToolInput(BaseModel):
             "Example (Cypher): `INTERPRET OPENCYPHER QUERY () FOR GRAPH MyGraph { MATCH (n) RETURN n LIMIT 5 }`"
         )
     )
+    params: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description=(
+            "Values for the parameters declared in the query's parameter list, keyed by name. "
+            "Example: query_text `INTERPRET QUERY (INT top_k) FOR GRAPH MyGraph { ... }` "
+            "with params `{\"top_k\": 5}`. Use a list for SET or BAG parameters."
+        ),
+    )
 
 
 class RunInstalledQueryToolInput(BaseModel):
@@ -148,7 +156,9 @@ run_query_tool = Tool(
         
         "**Warning: Syntax Notes:**\n"
         "  • GSQL: `INTERPRET QUERY () FOR GRAPH <name> { <statements> }`\n"
-        "  • Cypher: `INTERPRET OPENCYPHER QUERY () FOR GRAPH <name> { <cypher> }`\n\n"
+        "  • Cypher: `INTERPRET OPENCYPHER QUERY () FOR GRAPH <name> { <cypher> }`\n"
+        "  • Parameters: declare them in the parentheses and pass values in 'params', "
+        "e.g. `INTERPRET QUERY (INT top_k) ...` with `{\"top_k\": 5}`\n\n"
         
         "**Related Tools:** run_installed_query, install_query, get_neighbors"
     ),
@@ -442,6 +452,7 @@ get_neighbors_tool = Tool(
 
 async def run_query(
     query_text: str,
+    params: Optional[Dict[str, Any]] = None,
     profile: Optional[str] = None,
     graph_name: Optional[str] = None,
 ) -> List[TextContent]:
@@ -454,6 +465,7 @@ async def run_query(
         query_text: The query text to run. Must include the full INTERPRET wrapper:
             - GSQL: INTERPRET QUERY () FOR GRAPH <graph> { <statements> }
             - openCypher: INTERPRET OPENCYPHER QUERY () FOR GRAPH <graph> { <statements> }
+        params: Optional values for the parameters declared in the query.
         graph_name: Optional graph name.
     """
     try:
@@ -466,13 +478,14 @@ async def run_query(
         else:
             query_type = "GSQL"
         
-        result = await conn.runInterpretedQuery(query_text)
+        result = await conn.runInterpretedQuery(query_text, params or None)
         
         return format_success(
             operation="run_query",
             summary=f"Success: {query_type} query executed successfully",
             data={
                 "query_type": query_type,
+                "parameters": params or {},
                 "result": result,
                 "query_text_preview": query_text[:200] + "..." if len(query_text) > 200 else query_text
             },
@@ -494,6 +507,7 @@ async def run_query(
             error=Exception(f"{error_msg}{error_code}"),
             context={
                 "query_type": "GSQL/openCypher",
+                "parameters": params or {},
                 "graph_name": graph_name or "default"
             }
         )
