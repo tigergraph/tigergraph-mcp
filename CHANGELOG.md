@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The server reports its own version** — an MCP client's `serverInfo` now carries the tigergraph-mcp version rather than the SDK's, so it is possible to tell which version a session is connected to. This matters for installs that never named one, such as the plugin or a registry entry.
 - **Listed in the official MCP Registry** — a `server.json` describes the published PyPI package, so MCP clients and directories that consume the registry can discover the server.
 - **`run_query` accepts parameters** — a new `params` argument supplies values for the parameters an interpreted query declares, such as `INTERPRET QUERY (INT top_k) …` with `{"top_k": 5}`. TigerGraph's interpreted-query endpoint has always accepted them, but the tool offered no way to pass them, so an agent had to write values into the query text instead.
+- **`run_installed_query` can bound a query's time and resources** — new `timeout_ms`, `size_limit_bytes`, `thread_limit`, `memory_limit_mb`, and `replica` arguments. A long-running query could previously only run within the server's default timeout, and nothing could cap what a query consumed.
+
+### Fixed
+
+- **`get_neighbors` and `get_node_degree` handle any vertex ID** — an ID containing a double quote broke the generated query, and text after the quote was run as GSQL. Vertex IDs are now escaped, and vertex and edge type names that are not valid identifiers are rejected before anything runs.
 
 ## [1.0.3] - 2026-09-14
 

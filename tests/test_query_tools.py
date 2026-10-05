@@ -100,6 +100,36 @@ class TestRunInstalledQuery(MCPToolTestBase):
         self.mock_conn.runInstalledQuery.assert_called_once_with("simple", {})
 
     @patch(PATCH_TARGET)
+    async def test_limits_forwarded(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.runInstalledQuery.return_value = [{}]
+
+        result = await run_installed_query(
+            query_name="slow",
+            params={"k": 1},
+            timeout_ms=600000,
+            size_limit_bytes="1048576",
+            thread_limit=4,
+            memory_limit_mb=2048,
+            replica=2,
+        )
+        self.assert_success(result)
+        self.mock_conn.runInstalledQuery.assert_called_once_with(
+            "slow", {"k": 1},
+            timeout=600000, sizeLimit=1048576, threadLimit=4,
+            memoryLimit=2048, replica=2,
+        )
+
+    @patch(PATCH_TARGET)
+    async def test_invalid_limit_rejected_before_running(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+
+        for bad in (0, -5, "abc", True, 1.5):
+            result = await run_installed_query(query_name="q", timeout_ms=bad)
+            self.assert_error(result)
+        self.mock_conn.runInstalledQuery.assert_not_called()
+
+    @patch(PATCH_TARGET)
     async def test_exception(self, mock_gc):
         mock_gc.return_value = self.mock_conn
         self.mock_conn.runInstalledQuery.side_effect = Exception("query not found")
@@ -340,6 +370,38 @@ class TestGetNeighbors(MCPToolTestBase):
         result = await get_neighbors(vertex_type="Person", vertex_id="u1")
         resp = self.assert_success(result)
         self.assertEqual(resp["data"]["count"], 0)
+
+    @patch(PATCH_TARGET)
+    async def test_vertex_id_is_escaped(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.runInterpretedQuery.return_value = [{"neighbors": []}]
+
+        await get_neighbors(vertex_type="Person", vertex_id='a"b\\c')
+        query_arg = self.mock_conn.runInterpretedQuery.call_args[0][0]
+        self.assertIn('to_vertex("a\\"b\\\\c", "Person")', query_arg)
+
+    @patch(PATCH_TARGET)
+    async def test_multiple_edge_types(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+        self.mock_conn.runInterpretedQuery.return_value = [{"neighbors": []}]
+
+        await get_neighbors(vertex_type="Person", vertex_id="u1", edge_type="FOLLOWS | LIKES")
+        query_arg = self.mock_conn.runInterpretedQuery.call_args[0][0]
+        self.assertIn("((FOLLOWS|LIKES):e)", query_arg)
+
+    @patch(PATCH_TARGET)
+    async def test_invalid_input_rejected_before_running(self, mock_gc):
+        mock_gc.return_value = self.mock_conn
+
+        for kwargs in (
+            {"vertex_type": 'Person", "x'},
+            {"vertex_type": "Person", "edge_type": "FOLLOWS):e) - ANY:t; //"},
+            {"vertex_type": "Person", "target_vertex_type": "Product:t"},
+            {"vertex_type": "Person", "limit": "5; PRINT 1"},
+        ):
+            result = await get_neighbors(vertex_id="u1", **kwargs)
+            self.assert_error(result)
+        self.mock_conn.runInterpretedQuery.assert_not_called()
 
 
 class TestProfilePropagation(MCPToolTestBase):
