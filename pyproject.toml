@@ -25,7 +25,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "pyTigerGraph>=2.0.4",
+    "pyTigerGraph>=2.0.5",
     "mcp>=1.0.0",
     "pydantic>=2.0.0",
     "click",

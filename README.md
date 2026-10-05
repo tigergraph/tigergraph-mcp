@@ -59,7 +59,7 @@ conda install -c tigergraph tigergraph-mcp
 ```
 
 This installs:
-- `pyTigerGraph>=2.0.4` — the TigerGraph Python SDK
+- `pyTigerGraph>=2.0.5` — the TigerGraph Python SDK
 - `mcp>=1.0.0` — the MCP SDK
 - `pydantic>=2.0.0` — for data validation
 - `click` — for the CLI entry point
