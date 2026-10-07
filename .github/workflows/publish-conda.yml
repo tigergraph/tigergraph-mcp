@@ -47,29 +47,53 @@ jobs:
             exit 1
           fi
 
-      - name: Build sdist locally
+      # Build conda from the sdist published on PyPI, so both channels ship
+      # the same artifact. PyPI is uploaded by hand, so wait for the version
+      # to appear rather than racing the upload or its propagation.
+      - name: Point recipe at the PyPI sdist
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
         run: |
-          python -m pip install --upgrade pip build
-          python -m build --sdist
+          python - <<'PY'
+          import json, os, pathlib, re, sys, time, urllib.error, urllib.request
 
-      # Build conda from the local sdist to avoid the PyPI propagation race.
-      - name: Rewrite recipe to build from local sdist
-        run: |
-          VERSION="${{ steps.tag.outputs.version }}"
-          SDIST="$PWD/dist/tigergraph_mcp-${VERSION}.tar.gz"
-          [[ -f "$SDIST" ]] || { echo "::error::Sdist not found at $SDIST"; exit 1; }
-          SHA=$(shasum -a 256 "$SDIST" | awk '{print $1}')
-          python - <<PY
-          import pathlib, re
+          version = os.environ["VERSION"]
+          api = f"https://pypi.org/pypi/tigergraph-mcp/{version}/json"
+          deadline = time.time() + 30 * 60
+          while True:
+              try:
+                  with urllib.request.urlopen(api, timeout=30) as r:
+                      files = json.load(r)["urls"]
+                  sdist = next((f for f in files if f["packagetype"] == "sdist"), None)
+                  if sdist:
+                      break
+              except urllib.error.HTTPError as e:
+                  if e.code != 404:
+                      raise
+              if time.time() > deadline:
+                  print(f"::error::tigergraph-mcp {version} sdist is not on PyPI. "
+                        "Upload it with ./build.sh --upload, then re-run this workflow.")
+                  sys.exit(1)
+              print(f"tigergraph-mcp {version} sdist not on PyPI yet; retrying in 60s")
+              time.sleep(60)
+
+          print(f"Using {sdist['url']}")
           p = pathlib.Path("tigergraph-mcp-recipe/recipe/meta.yaml")
           t = p.read_text()
-          t = re.sub(r'^\{% set version = ".*" %\}', f'{{% set version = "${{ steps.tag.outputs.version }}" %}}', t, count=1, flags=re.M)
-          t = re.sub(
+          m = re.search(r'^\{% set version = "(.*)" %\}', t, flags=re.M)
+          if not m or m.group(1) != version:
+              print(f"::error::meta.yaml version ({m and m.group(1)}) does not match tag version ({version}).")
+              sys.exit(1)
+          t, n = re.subn(
               r'^source:\n(?:  .*\n)+',
-              f'source:\n  url: file://${SDIST}\n  sha256: ${SHA}\n',
+              f"source:\n  url: {sdist['url']}\n  sha256: {sdist['digests']['sha256']}\n",
               t, count=1, flags=re.M,
           )
+          if n != 1:
+              print("::error::No source block found in meta.yaml")
+              sys.exit(1)
           p.write_text(t)
+          print(re.search(r'^source:\n(?:  .*\n)+', t, flags=re.M).group(0))
           PY
 
       - name: Set up Miniconda
