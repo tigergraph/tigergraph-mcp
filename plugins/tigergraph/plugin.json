@@ -1,0 +1,23 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "tigergraph",
+  "version": "1.0.4",
+  "description": "Connect to any TigerGraph deployment — self-managed, on-premise, or a TigerGraph Savanna instance — using your host and credentials. Explore and evolve the graph schema, run GSQL and Cypher, load data from files and warehouses, and search vector embeddings.",
+  "author": {
+    "name": "TigerGraph Inc.",
+    "email": "support@tigergraph.com",
+    "url": "https://www.tigergraph.com"
+  },
+  "homepage": "https://github.com/tigergraph/tigergraph-mcp#readme",
+  "repository": "https://github.com/tigergraph/tigergraph-mcp",
+  "license": "Apache-2.0",
+  "keywords": [
+    "tigergraph",
+    "graph-database",
+    "gsql",
+    "cypher",
+    "graphrag",
+    "vector-search",
+    "mcp"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "tigergraph": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "tigergraph-mcp@1.0.4"
+      ]
+    }
+  }
+}

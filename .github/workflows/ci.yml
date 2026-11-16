@@ -43,11 +43,23 @@ jobs:
       - name: Check the server is declared in .mcp.json, not inline
         run: python scripts/check_plugin_layout.py
 
+      - name: Check the Agent Plugins manifest matches the Claude Code one
+        run: python scripts/check_agent_plugin.py
+
+      - name: Validate the Agent Plugins manifests against the 1.0 schemas
+        run: |
+          pip install --quiet jsonschema==4.23.0
+          python - <<'EOF'
+          import json, urllib.request, jsonschema
+          base = "https://agent-plugins.org/schemas/1.0.0/"
+          for name in ("plugin", "mcp"):
+              schema = json.load(urllib.request.urlopen(f"{base}{name}.schema.json", timeout=30))
+              jsonschema.validate(json.load(open(f"plugins/tigergraph/{name}.json")), schema)
+              print(f"plugins/tigergraph/{name}.json OK")
+          EOF
+
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
-
-      - name: Validate the marketplace manifest
-        run: claude plugin validate ./
 
       - name: Validate the plugin manifest
         run: claude plugin validate ./plugins/tigergraph --strict

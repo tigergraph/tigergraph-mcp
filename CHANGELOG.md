@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Install in Codex and GitHub Copilot CLI** — the plugin now also has an [Agent Plugins](https://agent-plugins.org) manifest (`plugin.json` and `mcp.json` at the plugin root), which these agents load. They read the connection details from a `.env` file rather than prompting for them.
+
+### Changed
+
+- **Install from `tigergraph/agent-skills`** — the plugin marketplace moved to [tigergraph/agent-skills](https://github.com/tigergraph/agent-skills), which lists this plugin next to TigerGraph's agent skills. Remove the old marketplace with `claude plugin marketplace remove tigergraph`, then add the new one; the plugin keeps its name.
+
 ## [1.0.4] - 2026-09-28
 
 ### Added
