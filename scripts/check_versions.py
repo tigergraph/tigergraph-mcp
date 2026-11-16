@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Fail when the version disagrees anywhere it is declared.
 
-The version appears in six places across three release channels — PyPI, conda,
-and the Claude Code plugin — and a mismatch is only discovered by a user whose
+The version appears in several places across three release channels — PyPI, conda,
+and the agent plugin — and a mismatch is only discovered by a user whose
 install resolves to a package that does not exist. Cheaper to catch here.
 """
 
@@ -31,9 +31,14 @@ def _plugin() -> dict:
     return json.loads(_read("plugins/tigergraph/.claude-plugin/plugin.json"))
 
 
-def _mcp_server_args() -> list:
-    servers = json.loads(_read("plugins/tigergraph/.mcp.json"))["mcpServers"]
+def _mcp_server_args(path: str = "plugins/tigergraph/.mcp.json") -> list:
+    servers = json.loads(_read(path))["mcpServers"]
     return servers["tigergraph"]["args"]
+
+
+def _pin(args: list) -> str:
+    pinned = [a.split("@", 1)[1] for a in args if a.startswith("tigergraph-mcp@")]
+    return pinned[0] if pinned else "<missing>"
 
 
 def _server_json() -> dict:
@@ -41,8 +46,6 @@ def _server_json() -> dict:
 
 
 def versions() -> dict:
-    args = _mcp_server_args()
-    pinned = [a.split("@", 1)[1] for a in args if a.startswith("tigergraph-mcp@")]
     sj = _server_json()
     return {
         "pyproject.toml": _search(r'^version = "([^"]+)"', "pyproject.toml"),
@@ -53,7 +56,9 @@ def versions() -> dict:
             r'__version__ = "([^"]+)"', "tigergraph_mcp/__init__.py"
         ),
         "plugin.json version": _plugin()["version"],
-        ".mcp.json uvx pin": pinned[0] if pinned else "<missing>",
+        ".mcp.json uvx pin": _pin(_mcp_server_args()),
+        "plugin.json (portable)": json.loads(_read("plugins/tigergraph/plugin.json"))["version"],
+        "mcp.json uvx pin": _pin(_mcp_server_args("plugins/tigergraph/mcp.json")),
         "server.json version": sj["version"],
         "server.json package": sj["packages"][0]["version"],
     }

@@ -6,7 +6,7 @@ graph schema, read and write vertices and edges, run GSQL and Cypher queries, in
 run stored queries, load data from files and data sources, and search vector embeddings.
 
 The plugin runs the open-source [tigergraph-mcp](https://github.com/tigergraph/tigergraph-mcp)
-server on your machine. It works in Claude Code.
+server on your machine. It works in Claude Code, Codex and GitHub Copilot CLI.
 
 ## Requirements
 
@@ -17,9 +17,13 @@ server on your machine. It works in Claude Code.
 ## Install
 
 ```bash
-claude plugin marketplace add tigergraph/tigergraph-mcp
+claude plugin marketplace add tigergraph/agent-skills
 claude plugin install tigergraph@tigergraph
 ```
+
+For Codex and GitHub Copilot CLI, see the
+[repository README](https://github.com/tigergraph/tigergraph-mcp#use-with-codex-and-github-copilot-cli).
+Those agents read the connection details from a `.env` file instead of prompting for them.
 
 ## Configuration
 
