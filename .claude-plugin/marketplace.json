@@ -1,0 +1,15 @@
+{
+  "name": "tigergraph",
+  "description": "TigerGraph plugins for Claude Code",
+  "owner": {
+    "name": "TigerGraph Inc.",
+    "url": "https://www.tigergraph.com"
+  },
+  "plugins": [
+    {
+      "name": "tigergraph",
+      "source": "./plugins/tigergraph",
+      "description": "Query, load and manage TigerGraph graphs from Claude Code"
+    }
+  ]
+}

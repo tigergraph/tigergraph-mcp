@@ -17,7 +17,7 @@ server on your machine. It works in Claude Code, Codex and GitHub Copilot CLI.
 ## Install
 
 ```bash
-claude plugin marketplace add tigergraph/agent-skills
+claude plugin marketplace add tigergraph/tigergraph
 claude plugin install tigergraph@tigergraph
 ```
 

@@ -179,14 +179,14 @@ Requires [uv](https://docs.astral.sh/uv/) on your PATH — the plugin runs the s
 nothing else needs installing.
 
 ```bash
-claude plugin marketplace add tigergraph/agent-skills
+claude plugin marketplace add tigergraph/tigergraph
 claude plugin install tigergraph@tigergraph
 ```
 
-The plugin is listed in the [tigergraph/agent-skills](https://github.com/tigergraph/agent-skills)
+The plugin is listed in the [tigergraph/tigergraph](https://github.com/tigergraph/tigergraph)
 marketplace, next to TigerGraph's agent skills. If you added this repository as a marketplace
-before, remove it first with `claude plugin marketplace remove tigergraph`; the plugin keeps the
-same name.
+before, your install keeps working; to switch, see the
+[migration note](https://github.com/tigergraph/tigergraph#already-added-the-marketplace-from-tigergraph-mcp).
 
 Claude Code then asks for the TigerGraph host (required), and optionally a username,
 password, default graph, API token, and a tool selection. The password and API token are
@@ -215,10 +215,10 @@ The plugin also carries a portable [Agent Plugins](https://agent-plugins.org) ma
 it. Codex and GitHub Copilot CLI install it from the same marketplace:
 
 ```bash
-codex plugin marketplace add tigergraph/agent-skills
+codex plugin marketplace add tigergraph/tigergraph
 codex plugin add tigergraph@tigergraph
 
-copilot plugin marketplace add tigergraph/agent-skills
+copilot plugin marketplace add tigergraph/tigergraph
 copilot plugin install tigergraph@tigergraph
 ```
 
