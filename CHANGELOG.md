@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Install from `tigergraph/tigergraph`** — the plugin is listed in the [tigergraph/tigergraph](https://github.com/tigergraph/tigergraph) marketplace, next to TigerGraph's agent skills. The marketplace in this repository keeps working for existing installs. To switch, remove it with `claude plugin marketplace remove tigergraph`, then add the new one; the plugin keeps its name.
+- **Install from `tigergraph/tigergraph`** — the plugin is listed in the [tigergraph/tigergraph](https://github.com/tigergraph/tigergraph) marketplace. The marketplace in this repository keeps working for existing installs. To switch, remove it with `claude plugin marketplace remove tigergraph`, then add the new one; the plugin keeps its name.
 
 ## [1.0.4] - 2026-09-28
 

@@ -183,9 +183,8 @@ claude plugin marketplace add tigergraph/tigergraph
 claude plugin install tigergraph@tigergraph
 ```
 
-The plugin is listed in the [tigergraph/tigergraph](https://github.com/tigergraph/tigergraph)
-marketplace, next to TigerGraph's agent skills. If you added this repository as a marketplace
-before, your install keeps working; to switch, see the
+If you added `tigergraph/tigergraph-mcp` as a marketplace before, your install keeps working;
+to switch, see the
 [migration note](https://github.com/tigergraph/tigergraph#already-added-the-marketplace-from-tigergraph-mcp).
 
 Claude Code then asks for the TigerGraph host (required), and optionally a username,
