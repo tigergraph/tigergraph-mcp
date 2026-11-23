@@ -14,6 +14,7 @@ Model Context Protocol (MCP) server for TigerGraph — lets AI agents interact w
     - [stdio (single user, one IDE/agent)](#stdio-default--single-user-one-ideagent)
     - [Streamable HTTP / SSE (multi-user, shared server)](#streamable-http--sse-multi-user-shared-server)
   - [Use with Claude Code](#use-with-claude-code)
+  - [Use with Codex and GitHub Copilot CLI](#use-with-codex-and-github-copilot-cli)
   - [Configuration](#configuration)
   - [Multiple Connection Profiles](#multiple-connection-profiles)
   - [HTTP Mode End-to-End](#http-mode-end-to-end)
@@ -178,9 +179,13 @@ Requires [uv](https://docs.astral.sh/uv/) on your PATH — the plugin runs the s
 nothing else needs installing.
 
 ```bash
-claude plugin marketplace add tigergraph/tigergraph-mcp
+claude plugin marketplace add tigergraph/tigergraph
 claude plugin install tigergraph@tigergraph
 ```
+
+If you added `tigergraph/tigergraph-mcp` as a marketplace before, your install keeps working;
+to switch, see the
+[migration note](https://github.com/tigergraph/tigergraph#already-added-the-marketplace-from-tigergraph-mcp).
 
 Claude Code then asks for the TigerGraph host (required), and optionally a username,
 password, default graph, API token, and a tool selection. The password and API token are
@@ -201,6 +206,27 @@ match a plugin-provided server.
 If you would rather not install `uv`, install the package yourself and point a plain MCP
 client config at the `tigergraph-mcp` command, as in
 [stdio](#stdio-default--single-user-one-ideagent) above.
+
+### Use with Codex and GitHub Copilot CLI
+
+The plugin also carries a portable [Agent Plugins](https://agent-plugins.org) manifest
+(`plugin.json` and `mcp.json` at the plugin root), so agents that load that format can run
+it. Codex and GitHub Copilot CLI install it from the same marketplace:
+
+```bash
+codex plugin marketplace add tigergraph/tigergraph
+codex plugin add tigergraph@tigergraph
+
+copilot plugin marketplace add tigergraph/tigergraph
+copilot plugin install tigergraph@tigergraph
+```
+
+These agents do not prompt for connection details. Put them in a `.env` file instead
+([Using a .env File](#using-a-env-file-recommended)). The server reads the first `.env` it
+finds in its working directory or a parent directory. Codex starts it from its plugin folder
+under your home directory and Copilot CLI from the directory you work in, so `~/.env` works
+in both while you work under your home directory, and a project's own `.env` also works in
+Copilot CLI.
 
 ### Configuration
 
